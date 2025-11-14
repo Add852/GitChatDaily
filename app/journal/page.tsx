@@ -4,10 +4,36 @@ import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { Navbar } from "@/components/Navbar";
-import { ChatbotInterface } from "@/components/ChatbotInterface";
+import { ChatbotInterface, SummarySectionsPayload } from "@/components/ChatbotInterface";
 import { ChatbotProfile, ConversationMessage, JournalEntry } from "@/types";
 import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
+import { cache, CACHE_KEYS } from "@/lib/cache";
+
+const deriveSummarySections = (markdown: string): SummarySectionsPayload => {
+  if (!markdown) {
+    return {
+      highlights: ["No highlights captured."],
+      summary: "You reflected on your day and recorded your thoughts.",
+    };
+  }
+
+  const highlightsMatch = markdown.match(/### Highlights([\s\S]*?)(### Summary|$)/i);
+  const summaryMatch = markdown.match(/### Summary([\s\S]*)/i);
+
+  const highlightsRaw = highlightsMatch?.[1] ?? "";
+  const summaryRaw = summaryMatch?.[1]?.trim() ?? markdown.trim();
+
+  const highlights = highlightsRaw
+    .split("\n")
+    .map((line) => line.replace(/^[-*]\s*/, "").trim())
+    .filter(Boolean);
+
+  return {
+    highlights: highlights.length > 0 ? highlights : ["No specific highlights were provided."],
+    summary: summaryRaw.length > 0 ? summaryRaw : markdown.trim(),
+  };
+};
 
 export default function JournalPage() {
   const { data: session, status } = useSession();
@@ -47,8 +73,19 @@ export default function JournalPage() {
   }, [session?.user?.githubId, selectedDate]);
 
   const checkExistingEntry = async () => {
-    if (!session?.user?.githubId || !selectedDate) return;
+    if (!session?.user?.githubId || !selectedDate || !chatbotProfile) return;
     try {
+      // Check cache first
+      const cacheKey = CACHE_KEYS.JOURNAL_ENTRY(session.user.githubId, selectedDate);
+      const cachedEntry = cache.get<JournalEntry>(cacheKey);
+      
+      if (cachedEntry) {
+        setExistingEntry(cachedEntry);
+        // Still sync in background
+        fetch("/api/journal/sync", { method: "POST" }).catch(() => {});
+        return;
+      }
+      
       // First sync entries from GitHub
       await fetch("/api/journal/sync", { method: "POST" });
       
@@ -56,8 +93,19 @@ export default function JournalPage() {
       const response = await fetch(`/api/journal?date=${selectedDate}`);
       if (response.ok) {
         const entry = await response.json();
-        setExistingEntry(entry);
+        // Only set existing entry if we actually got a valid entry object
+        if (entry && entry.id && entry.date) {
+          setExistingEntry(entry);
+          // Cache the entry
+          cache.set(cacheKey, entry, 5 * 60 * 1000);
+        } else {
+          setExistingEntry(null);
+        }
+      } else if (response.status === 404) {
+        // Entry doesn't exist
+        setExistingEntry(null);
       } else {
+        // Other error, don't show warning
         setExistingEntry(null);
       }
     } catch (error) {
@@ -66,61 +114,46 @@ export default function JournalPage() {
     }
   };
 
+  const applyProfilesResponse = (data?: { profiles?: ChatbotProfile[]; currentProfileId?: string | null }) => {
+    const list =
+      Array.isArray(data?.profiles) && data.profiles.length > 0
+        ? data.profiles
+        : [DEFAULT_CHATBOT_PROFILE];
+
+    setChatbotProfiles(list);
+
+    const desiredProfileId = data?.currentProfileId ?? chatbotProfile?.id;
+    const resolvedProfile =
+      list.find((profile) => profile.id === desiredProfileId) ||
+      list[0];
+
+    profilesLoadedRef.current = true;
+    setChatbotProfile(resolvedProfile);
+  };
+
   const fetchChatbotProfiles = async () => {
+    if (!session?.user?.githubId) return;
+
+    const cacheKey = CACHE_KEYS.CHATBOT_PROFILES(session.user.githubId);
+    const cachedResponse = cache.get<{ profiles: ChatbotProfile[]; currentProfileId?: string }>(cacheKey);
+
+    if (cachedResponse?.profiles?.length) {
+      applyProfilesResponse(cachedResponse);
+    }
+
     try {
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
-        const profiles = await response.json();
-        if (Array.isArray(profiles) && profiles.length > 0) {
-          setChatbotProfiles(profiles);
-          
-          // Only set default profile on initial load
-          if (!profilesLoadedRef.current) {
-            profilesLoadedRef.current = true;
-            // On first load, use the currently selected profile if it exists, otherwise use default
-            const currentProfileId = chatbotProfile?.id;
-            if (currentProfileId) {
-              const currentProfile = profiles.find((p: ChatbotProfile) => p.id === currentProfileId);
-              if (currentProfile) {
-                setChatbotProfile(currentProfile);
-              } else {
-                // Current profile not found, use default
-                const defaultProfile = profiles.find((p: ChatbotProfile) => p.isDefault) || profiles[0] || DEFAULT_CHATBOT_PROFILE;
-                setChatbotProfile(defaultProfile);
-              }
-            } else {
-              // No profile selected yet, use default
-              const defaultProfile = profiles.find((p: ChatbotProfile) => p.isDefault) || profiles[0] || DEFAULT_CHATBOT_PROFILE;
-              setChatbotProfile(defaultProfile);
-            }
-          } else {
-            // On subsequent loads, preserve the current selection if it still exists
-            if (chatbotProfile) {
-              const currentProfile = profiles.find((p: ChatbotProfile) => p.id === chatbotProfile.id);
-              if (currentProfile) {
-                // Update the profile object in case it changed
-                setChatbotProfile(currentProfile);
-              } else {
-                // Current profile was deleted, fallback to default
-                const defaultProfile = profiles.find((p: ChatbotProfile) => p.isDefault) || profiles[0] || DEFAULT_CHATBOT_PROFILE;
-                setChatbotProfile(defaultProfile);
-              }
-            }
-          }
-        } else {
-          // No profiles found, use default
-          setChatbotProfiles([DEFAULT_CHATBOT_PROFILE]);
-          if (!chatbotProfile) {
-            setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
-          }
-        }
+        const data = await response.json();
+        cache.set(cacheKey, data, 5 * 60 * 1000);
+        applyProfilesResponse(data);
+      } else if (!cachedResponse) {
+        applyProfilesResponse({ profiles: [DEFAULT_CHATBOT_PROFILE], currentProfileId: "default" });
       }
     } catch (error) {
       console.error("Error fetching chatbot profiles:", error);
-      // Fallback to default on error
-      setChatbotProfiles([DEFAULT_CHATBOT_PROFILE]);
-      if (!chatbotProfile) {
-        setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
+      if (!cachedResponse) {
+        applyProfilesResponse({ profiles: [DEFAULT_CHATBOT_PROFILE], currentProfileId: "default" });
       }
     } finally {
       setLoading(false);
@@ -130,9 +163,13 @@ export default function JournalPage() {
   const handleComplete = async (
     conversation: ConversationMessage[],
     summary: string,
-    mood: number
+    mood: number,
+    summarySections?: SummarySectionsPayload
   ) => {
-    if (!session?.user?.githubId || !selectedDate) return;
+    if (!session?.user?.githubId || !selectedDate || !chatbotProfile) {
+      console.error("Missing session, date, or chatbot profile. Cannot save entry.");
+      return;
+    }
 
     const entry: JournalEntry = {
       id: `${session.user.githubId}-${selectedDate}`,
@@ -158,6 +195,11 @@ export default function JournalPage() {
       }
 
       // Sync to GitHub
+      const sectionsPayload =
+        summarySections && summarySections.summary
+          ? summarySections
+          : deriveSummarySections(summary);
+
       const githubResponse = await fetch("/api/github/commit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -165,6 +207,9 @@ export default function JournalPage() {
           date: selectedDate,
           summary,
           mood,
+          conversation,
+          chatbotProfileName: chatbotProfile.name,
+          summarySections: sectionsPayload,
         }),
       });
 
@@ -174,6 +219,12 @@ export default function JournalPage() {
 
       // Update existing entry state
       setExistingEntry(entry);
+      
+      // Invalidate cache for entries list and this specific entry
+      if (session?.user?.githubId) {
+        cache.invalidatePattern(`journal:entries:${session.user.githubId}`);
+        cache.delete(CACHE_KEYS.JOURNAL_ENTRY(session.user.githubId, selectedDate));
+      }
 
       // Don't auto-redirect - let user view the summary
       // If redirect is needed, go to entries page instead
@@ -203,8 +254,8 @@ export default function JournalPage() {
     <div className="min-h-screen bg-github-dark">
       <Navbar />
       <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex-1">
             <h1 className="text-3xl font-bold mb-2">New Journal Entry</h1>
             <div className="flex items-center gap-3 flex-wrap">
               <p className="text-gray-400">
@@ -241,32 +292,21 @@ export default function JournalPage() {
               </div>
             )}
           </div>
-          {chatbotProfiles.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium mb-2">Chatbot Profile</label>
-              <select
-                value={chatbotProfile.id}
-                onChange={(e) => {
-                  if (conversationActive) {
-                    alert("Cannot change profile during an active conversation. Please finish or refresh the page.");
-                    return;
-                  }
-                  const selected = chatbotProfiles.find((p) => p.id === e.target.value);
-                  if (selected) {
-                    setChatbotProfile(selected);
-                  }
-                }}
-                disabled={conversationActive}
-                className="bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green disabled:opacity-50 disabled:cursor-not-allowed"
+          <div className="w-full lg:w-96 bg-github-dark border border-github-dark-border rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm text-gray-400">Current Profile</p>
+                <h2 className="text-lg font-semibold">{chatbotProfile?.name ?? "Loading..."}</h2>
+              </div>
+              <button
+                onClick={() => router.push("/profiles")}
+                className="text-sm px-3 py-1 border border-github-dark-border rounded-lg hover:border-github-green transition-colors"
               >
-                {chatbotProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name} {profile.isDefault ? "(Default)" : ""}
-                  </option>
-                ))}
-              </select>
+                Manage
+              </button>
             </div>
-          )}
+            <p className="text-sm text-gray-300">{chatbotProfile?.description}</p>
+          </div>
         </div>
         <div className="h-[calc(100vh-180px)] min-h-[700px]">
           {chatbotProfile && (

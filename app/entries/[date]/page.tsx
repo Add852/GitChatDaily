@@ -8,7 +8,7 @@ import { JournalEntry } from "@/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MOOD_OPTIONS } from "@/lib/constants";
-import { formatDate } from "@/lib/utils";
+import { cache, CACHE_KEYS } from "@/lib/cache";
 
 export default function EntryDetailPage() {
   const { data: session, status } = useSession();
@@ -33,12 +33,27 @@ export default function EntryDetailPage() {
   }, [session, date]);
 
   const fetchEntry = async () => {
+    if (!session?.user?.githubId || !date) return;
+    
     try {
+      // Check cache first
+      const cacheKey = CACHE_KEYS.JOURNAL_ENTRY(session.user.githubId, date);
+      const cachedEntry = cache.get<JournalEntry>(cacheKey);
+      
+      if (cachedEntry) {
+        setEntry(cachedEntry);
+        setEditedSummary(cachedEntry.summary);
+        setLoading(false);
+        return;
+      }
+      
       const response = await fetch(`/api/journal?date=${date}`);
       if (response.ok) {
         const data = await response.json();
         setEntry(data);
         setEditedSummary(data.summary);
+        // Cache the entry
+        cache.set(cacheKey, data, 5 * 60 * 1000);
       } else if (response.status === 404) {
         // Entry doesn't exist, redirect to create new entry
         router.push("/journal");
@@ -69,6 +84,14 @@ export default function EntryDetailPage() {
       if (response.ok) {
         setEntry(updatedEntry);
         setIsEditing(false);
+        
+        // Update cache
+        if (session?.user?.githubId) {
+          const cacheKey = CACHE_KEYS.JOURNAL_ENTRY(session.user.githubId, entry.date);
+          cache.set(cacheKey, updatedEntry, 5 * 60 * 1000);
+          // Invalidate entries list cache
+          cache.invalidatePattern(`journal:entries:${session.user.githubId}`);
+        }
 
         // Update GitHub commit
         await fetch("/api/github/commit", {
@@ -185,7 +208,9 @@ export default function EntryDetailPage() {
             </div>
           ) : (
             <div className="prose prose-invert prose-lg max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.summary}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {entry.summary.replace(/^---[\s\S]*?---\s*/gm, "").trim()}
+              </ReactMarkdown>
             </div>
           )}
         </div>
@@ -205,15 +230,11 @@ export default function EntryDetailPage() {
                       : "bg-github-dark-hover text-gray-200"
                   }`}
                 >
-                  {message.role === "assistant" ? (
-                    <div className="prose prose-invert prose-sm max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {message.content}
-                      </ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-                  )}
+                  <div className="prose prose-invert prose-sm max-w-none [&_*]:text-inherit">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               </div>
             ))}

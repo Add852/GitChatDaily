@@ -84,8 +84,8 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
   return (
     <div className="bg-github-dark border border-github-dark-border rounded-lg p-6">
       <h2 className="text-xl font-semibold mb-4">Journal Activity (Last Year)</h2>
-      <div className="overflow-x-hidden">
-        <div className="flex gap-1">
+      <div className="overflow-x-auto">
+        <div className="flex gap-1 justify-end">
           {weeks.map((week, weekIndex) => (
             <div key={weekIndex} className="flex flex-col gap-1">
               {week.map((day, dayIndex) => {

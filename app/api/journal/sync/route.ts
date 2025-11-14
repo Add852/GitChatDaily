@@ -58,27 +58,29 @@ export async function POST(req: NextRequest) {
             if ("content" in fileData) {
               const content = Buffer.from(fileData.content, "base64").toString("utf-8");
               
-              // Parse the markdown file
-              // Format: # Journal Entry - YYYY-MM-DD 😊
-              // [summary content]
-              // ---
-              // *Mood: X/5*
-              
-              const lines = content.split("\n");
-              const headerMatch = lines[0]?.match(/# Journal Entry - (\d{4}-\d{2}-\d{2})/);
-              if (!headerMatch) continue;
+              const headerMatch = content.match(/^#\s+(\d{4}-\d{2}-\d{2})/m);
+              const dateFromHeader = headerMatch?.[1];
+              const date = dateFromHeader || file.name.replace(".md", "");
 
-              const date = headerMatch[1];
-              const moodMatch = content.match(/\*Mood: (\d)\/5\*/);
-              const mood = moodMatch ? parseInt(moodMatch[1]) : 3;
+              const moodMatchFrontMatter = content.match(/^mood:\s*(\d)/im);
+              const mood = moodMatchFrontMatter ? parseInt(moodMatchFrontMatter[1], 10) : 3;
 
-              // Extract summary (everything between header and ---)
-              const separatorIndex = content.indexOf("---");
-              const summary = separatorIndex > 0
-                ? content
-                    .substring(lines[0].length, separatorIndex)
-                    .trim()
-                : content.substring(lines[0].length).trim();
+              const highlightsMatch = content.match(/### Highlights([\s\S]*?)(### Summary|---|$)/i);
+              const summaryMatch = content.match(/### Summary([\s\S]*?)(---|### Conversation|$)/i);
+              const chatbotMatch = content.match(/^chatbot:\s*(.+)$/im);
+
+              const highlightsSection = highlightsMatch?.[1]?.trim() ?? "";
+              const summarySection = summaryMatch?.[1]?.trim() ?? "";
+              const chatbotProfileId = chatbotMatch?.[1]?.trim() || "default";
+
+              let summary = "";
+              if (highlightsSection) {
+                summary += `### Highlights\n${highlightsSection.trim()}\n\n`;
+              }
+              if (summarySection) {
+                summary += `### Summary\n${summarySection.trim()}`;
+              }
+              summary = summary.trim() || content.trim();
 
               // Create entry
               const entry: JournalEntry = {
@@ -87,7 +89,7 @@ export async function POST(req: NextRequest) {
                 summary,
                 conversation: [], // We don't store conversation in GitHub files
                 mood,
-                chatbotProfileId: "default",
+                chatbotProfileId,
                 createdAt: fileData.sha ? new Date().toISOString() : new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               };

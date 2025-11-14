@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ContributionGraph } from "@/components/ContributionGraph";
 import { JournalEntry } from "@/types";
+import { cache, CACHE_KEYS } from "@/lib/cache";
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
@@ -20,49 +21,76 @@ export default function Dashboard() {
   }, [status, router]);
 
   useEffect(() => {
-    if (session) {
-      // Sync entries from GitHub first
-      fetch("/api/journal/sync", { method: "POST" })
-        .then(() => fetchEntries())
-        .catch((error) => {
-          console.error("Error syncing entries:", error);
-          fetchEntries(); // Still try to fetch local entries
-        });
+    if (session?.user?.githubId) {
+      const cacheKey = CACHE_KEYS.JOURNAL_ENTRIES(session.user.githubId);
+      const cachedEntries = cache.get<JournalEntry[]>(cacheKey);
+      
+      if (cachedEntries) {
+        const entriesMap = buildEntriesMap(cachedEntries);
+        setEntries(entriesMap);
+        setLoading(false);
+        fetch("/api/journal/sync", { method: "POST" })
+          .then(() => fetchEntries({ silent: true }))
+          .catch((error) => {
+            console.error("Error syncing entries:", error);
+          });
+      } else {
+        fetch("/api/journal/sync", { method: "POST" })
+          .then(() => fetchEntries())
+          .catch((error) => {
+            console.error("Error syncing entries:", error);
+            fetchEntries();
+          });
+      }
     }
   }, [session]);
 
-  const fetchEntries = async () => {
+  const buildEntriesMap = (list: JournalEntry[]) => {
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const filteredEntries = list.filter((entry: JournalEntry) => {
+      const entryDate = new Date(entry.date);
+      return entryDate >= oneYearAgo;
+    });
+    const entriesMap = new Map<string, JournalEntry>();
+    filteredEntries.forEach((entry: JournalEntry) => {
+      entriesMap.set(entry.date, entry);
+    });
+    return entriesMap;
+  };
+
+  const fetchEntries = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!session?.user?.githubId) return;
+    if (!silent) {
+      setLoading(true);
+    }
+    
     try {
-      // Fetch all entries (we'll filter to last year in the component)
       const response = await fetch("/api/journal");
       if (response.ok) {
         const data = await response.json();
-        // Ensure data is an array
         if (Array.isArray(data)) {
-          // Filter to last year and convert to Map
-          const oneYearAgo = new Date();
-          oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-          const filteredEntries = data.filter((entry: JournalEntry) => {
-            const entryDate = new Date(entry.date);
-            return entryDate >= oneYearAgo;
-          });
-          const entriesMap = new Map<string, JournalEntry>();
-          filteredEntries.forEach((entry: JournalEntry) => {
-            entriesMap.set(entry.date, entry);
-          });
-          setEntries(entriesMap);
-        } else {
+          const cacheKey = CACHE_KEYS.JOURNAL_ENTRIES(session.user.githubId);
+          cache.set(cacheKey, data, 5 * 60 * 1000);
+          setEntries(buildEntriesMap(data));
+        } else if (entries.size === 0) {
           setEntries(new Map());
         }
       } else {
         console.error("Failed to fetch entries:", response.status, response.statusText);
-        setEntries(new Map());
+        if (entries.size === 0) {
+          setEntries(new Map());
+        }
       }
     } catch (error) {
       console.error("Error fetching entries:", error);
-      setEntries(new Map());
+      if (entries.size === 0) {
+        setEntries(new Map());
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 

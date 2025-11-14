@@ -5,12 +5,21 @@ import { DEFAULT_CHATBOT_PROFILE } from "./constants";
 // In production, this should be replaced with a database
 let journalEntries: Map<string, JournalEntry> = new Map();
 let chatbotProfiles: Map<string, ChatbotProfile> = new Map();
+let userCurrentProfiles: Map<string, string> = new Map();
 
 // Initialize default chatbot profile
 chatbotProfiles.set("default", {
   ...DEFAULT_CHATBOT_PROFILE,
   createdAt: new Date().toISOString(),
 });
+
+export function getCurrentChatbotProfileId(userId: string): string {
+  return userCurrentProfiles.get(userId) || "default";
+}
+
+export function setCurrentChatbotProfileId(userId: string, profileId: string): void {
+  userCurrentProfiles.set(userId, profileId);
+}
 
 export function getJournalEntry(userId: string, date: string): JournalEntry | null {
   const key = `${userId}-${date}`;
@@ -63,5 +72,8 @@ export function deleteJournalEntry(userId: string, date: string): void {
 
 export function deleteChatbotProfile(userId: string, profileId: string): void {
   chatbotProfiles.delete(profileId);
+  if (userCurrentProfiles.get(userId) === profileId) {
+    userCurrentProfiles.set(userId, "default");
+  }
 }
 

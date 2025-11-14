@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { Octokit } from "@octokit/rest";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { ConversationMessage } from "@/types";
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { date, summary, mood } = await req.json();
+    const { date, summary, mood, conversation = [], chatbotProfileName, summarySections } = await req.json();
 
     const octokit = new Octokit({
       auth: session.user.accessToken,
@@ -54,16 +57,74 @@ export async function POST(req: NextRequest) {
       // File doesn't exist, that's okay
     }
 
-    // Create or update the file
-    const moodEmoji = ["😢", "😕", "😐", "🙂", "😄"][mood - 1] || "😐";
-    const content = `# Journal Entry - ${date} ${moodEmoji}
+    const templatePath = join(process.cwd(), "lib", "templates", "entry-template.md");
+    let template = "";
+    try {
+      template = readFileSync(templatePath, "utf-8");
+    } catch (error) {
+      template = `# ${date} 🙂
+---
+date: ${date}
+mood: ${mood}
+chatbot: ${chatbotProfileName || "Companion"}
+---
 
+### Highlights
+${summary}
+
+### Summary
 ${summary}
 
 ---
-*Mood: ${mood}/5*
-*Created with GitChat Journal*
-`;
+
+### Conversation
+${summary}
+
+
+---
+
+*Created with GitChat Journal*`;
+    }
+
+    const highlightsMarkdown =
+      Array.isArray(summarySections?.highlights) && summarySections.highlights.length > 0
+        ? summarySections.highlights.map((item: string) => `- ${item}`).join("\n")
+        : "- No highlights recorded.";
+
+    const summaryMarkdown =
+      summarySections?.summary && summarySections.summary.length > 0
+        ? summarySections.summary
+        : summary;
+
+    const conversationMarkdown =
+      Array.isArray(conversation) && conversation.length > 0
+        ? (conversation as ConversationMessage[])
+            .map((message) => {
+              const speaker = message.role === "user" ? "You" : chatbotProfileName || "Companion";
+              return `**${speaker}:** ${message.content}`;
+            })
+            .join("\n\n")
+        : "_Conversation unavailable._";
+
+    const moodEmoji = ["😢", "😕", "😐", "🙂", "😄"][mood - 1] || "😐";
+    const replacements: [string, string][] = [
+      ["${YYYY-MM-DD}", date],
+      ["${INT: mood value from 1 to 5}", String(mood)],
+      ["${STRING: chatbot profile that was used}", chatbotProfileName || "Companion"],
+      ["${Bulleted summary of today's happenings}", highlightsMarkdown],
+      ["${Concise paragraph summary narrating/describing what happened today}", summaryMarkdown],
+      ["${the full transcript of the conversation here}", conversationMarkdown],
+    ];
+
+    let content = template;
+    replacements.forEach(([token, value]) => {
+      content = content.replaceAll(token, value);
+    });
+
+    const headerWithPlaceholder = `# ${date} 🙂`;
+    if (content.includes(headerWithPlaceholder)) {
+      content = content.replace(headerWithPlaceholder, `# ${date} ${moodEmoji}`);
+    }
 
     const contentBase64 = Buffer.from(content).toString("base64");
 

@@ -5,6 +5,8 @@ import {
   getAllChatbotProfiles,
   getChatbotProfile,
   saveChatbotProfile,
+  getCurrentChatbotProfileId,
+  setCurrentChatbotProfileId,
 } from "@/lib/storage";
 import { ChatbotProfile } from "@/types";
 import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
@@ -45,7 +47,8 @@ export async function GET(req: NextRequest) {
         if (Array.isArray(githubProfiles) && githubProfiles.length > 0) {
           // Merge with default profile (default always included, but not forced as selected)
           const allProfiles = [DEFAULT_CHATBOT_PROFILE, ...githubProfiles.filter((p: ChatbotProfile) => p.id !== "default")];
-          return NextResponse.json(allProfiles);
+          const currentProfileId = getCurrentChatbotProfileId(session.user.githubId);
+          return NextResponse.json({ profiles: allProfiles, currentProfileId });
         }
       } catch (e) {
         console.error("Error fetching from GitHub, using local storage:", e);
@@ -58,7 +61,8 @@ export async function GET(req: NextRequest) {
     const allProfiles = profiles.find(p => p.id === "default") 
       ? profiles 
       : [DEFAULT_CHATBOT_PROFILE, ...profiles];
-    return NextResponse.json(allProfiles);
+    const currentProfileId = getCurrentChatbotProfileId(session.user.githubId);
+    return NextResponse.json({ profiles: allProfiles, currentProfileId });
   } catch (error) {
     console.error("Chatbot profiles API error:", error);
     return NextResponse.json(
@@ -138,6 +142,56 @@ export async function DELETE(req: NextRequest) {
     console.error("Chatbot profiles API error:", error);
     return NextResponse.json(
       { error: "Failed to delete chatbot profile" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.githubId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { currentProfileId } = await req.json();
+    if (!currentProfileId) {
+      return NextResponse.json({ error: "Current profile ID is required" }, { status: 400 });
+    }
+
+    let profiles = getAllChatbotProfiles(session.user.githubId);
+    let profileExists = profiles.some((profile) => profile.id === currentProfileId);
+
+    if (!profileExists && session.user.accessToken) {
+      try {
+        const githubProfiles = await getProfilesFromGitHub(session.user.accessToken);
+        if (Array.isArray(githubProfiles) && githubProfiles.length > 0) {
+          profileExists = githubProfiles.some((profile) => profile.id === currentProfileId);
+          if (profileExists) {
+            profiles = [
+              ...profiles,
+              ...githubProfiles.filter(
+                (profile) => profile.id === currentProfileId && !profiles.some((p) => p.id === profile.id)
+              ),
+            ];
+          }
+        }
+      } catch (error) {
+        console.error("Error checking GitHub profiles:", error);
+      }
+    }
+
+    if (!profileExists) {
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    setCurrentChatbotProfileId(session.user.githubId, currentProfileId);
+
+    return NextResponse.json({ success: true, currentProfileId });
+  } catch (error) {
+    console.error("Chatbot profiles PATCH error:", error);
+    return NextResponse.json(
+      { error: "Failed to set current profile" },
       { status: 500 }
     );
   }

@@ -11,6 +11,7 @@ export default function ProfilesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [profiles, setProfiles] = useState<ChatbotProfile[]>([]);
+  const [currentProfileId, setCurrentProfileId] = useState<string>("default");
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ChatbotProfile | null>(null);
@@ -18,7 +19,6 @@ export default function ProfilesPage() {
     name: "",
     description: "",
     systemPrompt: "",
-    isDefault: false,
   });
 
   useEffect(() => {
@@ -38,7 +38,8 @@ export default function ProfilesPage() {
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
         const data = await response.json();
-        setProfiles(data);
+        setProfiles(data.profiles || []);
+        setCurrentProfileId(data.currentProfileId || "default");
       }
     } catch (error) {
       console.error("Error fetching profiles:", error);
@@ -54,7 +55,7 @@ export default function ProfilesPage() {
       name: formData.name,
       description: formData.description,
       systemPrompt: formData.systemPrompt,
-      isDefault: formData.isDefault,
+      isDefault: editingProfile?.isDefault ?? false,
       createdAt: editingProfile?.createdAt || new Date().toISOString(),
     };
 
@@ -73,7 +74,6 @@ export default function ProfilesPage() {
           name: "",
           description: "",
           systemPrompt: "",
-          isDefault: false,
         });
       }
     } catch (error) {
@@ -88,7 +88,6 @@ export default function ProfilesPage() {
       name: profile.name,
       description: profile.description,
       systemPrompt: profile.systemPrompt,
-      isDefault: profile.isDefault,
     });
     setShowCreateForm(true);
   };
@@ -118,6 +117,27 @@ export default function ProfilesPage() {
     } catch (error) {
       console.error("Error deleting profile:", error);
       alert("Failed to delete profile. Please try again.");
+    }
+  };
+
+  const handleSetCurrent = async (profileId: string) => {
+    try {
+      const response = await fetch("/api/chatbot-profiles", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentProfileId: profileId }),
+      });
+
+      if (response.ok) {
+        setCurrentProfileId(profileId);
+        await fetchProfiles();
+      } else {
+        const error = await response.json();
+        alert(error.error || "Failed to set current profile");
+      }
+    } catch (error) {
+      console.error("Error setting current profile:", error);
+      alert("Failed to set current profile. Please try again.");
     }
   };
 
@@ -153,7 +173,6 @@ export default function ProfilesPage() {
                 name: "",
                 description: "",
                 systemPrompt: DEFAULT_CHATBOT_PROFILE.systemPrompt,
-                isDefault: false,
               });
             }}
             className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors"
@@ -200,18 +219,6 @@ export default function ProfilesPage() {
                   Define the chatbot's personality, goals, and behavior
                 </p>
               </div>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="isDefault"
-                  checked={formData.isDefault}
-                  onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
-                  className="w-4 h-4 text-github-green bg-github-dark-hover border-github-dark-border rounded focus:ring-github-green"
-                />
-                <label htmlFor="isDefault" className="ml-2 text-sm">
-                  Set as default profile
-                </label>
-              </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
@@ -244,10 +251,10 @@ export default function ProfilesPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <h3 className="text-xl font-semibold">{profile.name}</h3>
-                    {profile.isDefault && (
-                      <span className="px-2 py-1 bg-github-green/20 text-github-green text-xs rounded">
-                        Default
-                      </span>
+                {profile.id === currentProfileId && (
+                  <span className="px-2 py-1 bg-github-green/20 text-github-green text-xs rounded">
+                    Current
+                  </span>
                     )}
                   </div>
                   <p className="text-gray-400 mb-3">{profile.description}</p>
@@ -259,6 +266,14 @@ export default function ProfilesPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                {profile.id !== currentProfileId && (
+                  <button
+                    onClick={() => handleSetCurrent(profile.id)}
+                    className="px-4 py-2 bg-github-green/10 hover:bg-github-green/20 text-github-green rounded-lg text-sm transition-colors border border-github-green/30"
+                  >
+                    Use Profile
+                  </button>
+                )}
                   <button
                     onClick={() => handleEdit(profile)}
                     className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border"

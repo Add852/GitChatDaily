@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { JournalEntry } from "@/types";
-import { formatDate } from "@/lib/utils";
 import { MOOD_OPTIONS } from "@/lib/constants";
+import { cache, CACHE_KEYS } from "@/lib/cache";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function EntriesPage() {
   const { data: session, status } = useSession();
@@ -21,33 +23,58 @@ export default function EntriesPage() {
   }, [status, router]);
 
   useEffect(() => {
-    if (session) {
-      // Sync entries from GitHub first
-      fetch("/api/journal/sync", { method: "POST" })
-        .then(() => fetchEntries())
-        .catch((error) => {
-          console.error("Error syncing entries:", error);
-          fetchEntries(); // Still try to fetch local entries
-        });
+    if (session?.user?.githubId) {
+      const cacheKey = CACHE_KEYS.JOURNAL_ENTRIES(session.user.githubId);
+      const cachedEntries = cache.get<JournalEntry[]>(cacheKey);
+
+      if (cachedEntries) {
+        setEntries(cachedEntries);
+        setLoading(false);
+        fetch("/api/journal/sync", { method: "POST" })
+          .then(() => fetchEntries({ silent: true }))
+          .catch((error) => {
+            console.error("Error syncing entries:", error);
+          });
+      } else {
+        fetch("/api/journal/sync", { method: "POST" })
+          .then(() => fetchEntries())
+          .catch((error) => {
+            console.error("Error syncing entries:", error);
+            fetchEntries();
+          });
+      }
     }
   }, [session]);
 
-  const fetchEntries = async () => {
+  const fetchEntries = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!session?.user?.githubId) return;
+    if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const response = await fetch("/api/journal");
       if (response.ok) {
         const data = await response.json();
-        // Ensure data is an array
-        setEntries(Array.isArray(data) ? data : []);
+        const entriesArray = Array.isArray(data) ? data : [];
+        setEntries(entriesArray);
+        const cacheKey = CACHE_KEYS.JOURNAL_ENTRIES(session.user.githubId);
+        cache.set(cacheKey, entriesArray, 5 * 60 * 1000);
       } else {
         console.error("Failed to fetch entries:", response.status, response.statusText);
-        setEntries([]);
+        if (entries.length === 0) {
+          setEntries([]);
+        }
       }
     } catch (error) {
       console.error("Error fetching entries:", error);
-      setEntries([]);
+      if (entries.length === 0) {
+        setEntries([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -108,7 +135,11 @@ export default function EntriesPage() {
                       </span>
                     </div>
                   </div>
-                  <p className="text-gray-300 line-clamp-3">{entry.summary.substring(0, 200)}...</p>
+                  <div className="prose prose-invert prose-sm max-w-none text-gray-300 line-clamp-3">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {entry.summary.replace(/^---[\s\S]*?---\s*/gm, "").trim()}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               );
             })
