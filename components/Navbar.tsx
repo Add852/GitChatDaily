@@ -73,11 +73,19 @@ export function Navbar() {
                   Profiles
                 </Link>
                 <div className="flex items-center space-x-3">
-                  <img
-                    src={session.user?.image || ""}
-                    alt={session.user?.name || ""}
-                    className="w-8 h-8 rounded-full"
-                  />
+                  <a
+                    href={`https://github.com/${(session.user as any)?.username || session.user?.name || ""}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:opacity-80 transition-opacity"
+                  >
+                    <img
+                      src={session.user?.image || ""}
+                      alt={session.user?.name || ""}
+                      className="w-8 h-8 rounded-full cursor-pointer"
+                      title={`View ${(session.user as any)?.username || session.user?.name}'s GitHub profile`}
+                    />
+                  </a>
                   <button
                     onClick={() => signOut()}
                     className="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-github-dark-hover hover:text-white"

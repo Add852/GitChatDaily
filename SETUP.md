@@ -17,9 +17,9 @@ npm install
 ### 2. Set Up Ollama
 
 1. Install Ollama from [ollama.ai](https://ollama.ai)
-2. Pull the phi3.5 model:
+2. Pull the llama3.2:3b model:
 ```bash
-ollama pull phi3.5
+ollama pull llama3.2:3b
 ```
 3. Verify Ollama is running:
 ```bash
@@ -74,7 +74,7 @@ The application will be available at [http://localhost:3000](http://localhost:30
 ### ✅ Implemented Features
 
 - **GitHub OAuth Authentication** - Seamless login with GitHub
-- **Conversational AI Chatbot** - Powered by Ollama (phi3.5)
+- **Conversational AI Chatbot** - Powered by Ollama (llama3.2:3b)
 - **Journal Entry System** - Automated markdown summaries
 - **GitHub Commit Sync** - Each entry creates a commit in a private repository
 - **Contribution Graph** - GitHub-style activity visualization with mood colors
@@ -96,7 +96,7 @@ The application will be available at [http://localhost:3000](http://localhost:30
 ### Ollama Connection Issues
 
 - Ensure Ollama is running: `ollama serve`
-- Check if phi3.5 model is installed: `ollama list`
+- Check if llama3.2:3b model is installed: `ollama list`
 - Verify the API URL in `.env.local`
 
 ### GitHub OAuth Issues

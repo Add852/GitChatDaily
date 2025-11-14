@@ -22,7 +22,13 @@ export default function EntriesPage() {
 
   useEffect(() => {
     if (session) {
-      fetchEntries();
+      // Sync entries from GitHub first
+      fetch("/api/journal/sync", { method: "POST" })
+        .then(() => fetchEntries())
+        .catch((error) => {
+          console.error("Error syncing entries:", error);
+          fetchEntries(); // Still try to fetch local entries
+        });
     }
   }, [session]);
 
@@ -31,10 +37,15 @@ export default function EntriesPage() {
       const response = await fetch("/api/journal");
       if (response.ok) {
         const data = await response.json();
-        setEntries(data);
+        // Ensure data is an array
+        setEntries(Array.isArray(data) ? data : []);
+      } else {
+        console.error("Failed to fetch entries:", response.status, response.statusText);
+        setEntries([]);
       }
     } catch (error) {
       console.error("Error fetching entries:", error);
+      setEntries([]);
     } finally {
       setLoading(false);
     }

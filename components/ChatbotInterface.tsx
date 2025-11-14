@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { ConversationMessage, ChatbotProfile } from "@/types";
 import { MOOD_OPTIONS } from "@/lib/constants";
 import ReactMarkdown from "react-markdown";
@@ -12,6 +13,8 @@ interface ChatbotInterfaceProps {
   initialConversation?: ConversationMessage[];
   onConversationStart?: () => void;
   onConversationEnd?: () => void;
+  onNavigateToEntries?: () => void;
+  entryDate?: string;
 }
 
 export function ChatbotInterface({
@@ -20,24 +23,30 @@ export function ChatbotInterface({
   initialConversation = [],
   onConversationStart,
   onConversationEnd,
+  onNavigateToEntries,
+  entryDate,
 }: ChatbotInterfaceProps) {
+  const { data: session } = useSession();
   const [messages, setMessages] = useState<ConversationMessage[]>(initialConversation);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState<string>("");
   const [showMoodSelector, setShowMoodSelector] = useState(false);
   const [summary, setSummary] = useState("");
-  const [suggestedMood, setSuggestedMood] = useState(3);
+  const [streamingSummary, setStreamingSummary] = useState("");
+  const [suggestedMood, setSuggestedMood] = useState<number | null>(null);
   const [conversationEnded, setConversationEnded] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [isAnalyzingMood, setIsAnalyzingMood] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const conversationStarted = useRef(false);
 
   const buildSystemPrompt = (profile: ChatbotProfile) =>
-    `Can you converse with me about my day? In doing so, your goal is to gather three key pieces of information: today's highlight or standout moment, a problem I dealt with today, and something I'm grateful for. You may ask follow-up questions when helpful, but stay focused on collecting just enough detail to craft a concise journal entry. Assume I don't want to entertain too many questions, so keep the total question count to five or fewer.
-Begin the conversation immediately with a short greeting and your first question—do not wait for the user to speak first. Conduct the conversation in a realistic text-chat tone.
-Adopt this persona or identity during the conversation: ${profile.systemPrompt}.
-After you have collected the needed information, acknowledge it, wrap up the conversation, and end with a 📝 emoji as a delimiter to signal the chat is finished. Do not mention or include the persona in that closing message. Don't respond to this instruction directly; start the conversation now.`;
+    `You are a chatbot designed to help users document their day. Your goal is to gather three key pieces of information: today's highlight or standout moment, a problem they dealt with today, and something they're grateful for. You may ask follow-up questions when helpful, but stay focused on collecting just enough detail to craft a concise journal entry. Keep the total question count to five or fewer. After you have collected the needed information, DO NOT craft the journal entry, just acknowledge the information they provided, wrap up the conversation, and end with a 📝 emoji as a delimiter to signal the chat is finished. Conduct the conversation in a realistic text-chat tone. Adopt this persona or identity during the conversation: ${profile.systemPrompt}.
+
+CRITICAL INSTRUCTION: When you receive a message that says "Start the conversation" or when this is the very first message in the conversation, you MUST ignore that message and immediately begin with a short greeting and your first question about their day. DO NOT ever use the emoji 📝 anywhere unless you are ending conversation`;
 
   useEffect(() => {
     if (initialConversation.length === 0 && !conversationStarted.current) {
@@ -63,6 +72,7 @@ After you have collected the needed information, acknowledge it, wrap up the con
     setConversationEnded(false);
     setIsFinalizing(false);
     onConversationStart?.();
+    let messageAdded = false; // Declare outside try block so it's accessible in finally
     try {
       const response = await fetch("/api/ollama/chat", {
         method: "POST",
@@ -82,11 +92,15 @@ After you have collected the needed information, acknowledge it, wrap up the con
       let fullContent = "";
       let buffer = "";
 
+      console.log("\n=== FRONTEND: Starting conversation stream ===");
+
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
+        
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+        
         const lines = buffer.split("\n");
         buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
@@ -96,27 +110,93 @@ After you have collected the needed information, acknowledge it, wrap up the con
             const data = JSON.parse(line.slice(6)); // Remove "data: " prefix
             if (data.content !== undefined) {
               fullContent += data.content;
+              console.log("Received content chunk, total length:", fullContent.length);
               setStreamingMessage(fullContent);
             }
             if (data.done) {
-              const greeting: ConversationMessage = {
-                role: "assistant",
-                content: fullContent,
-                timestamp: new Date().toISOString(),
-              };
-              setMessages([greeting]);
-              setStreamingMessage("");
+              console.log("Received done signal");
+              console.log("Full content length:", fullContent.length);
+              console.log("Full content:", fullContent);
+              // Mark that we've received the done signal, but continue processing
+              // to ensure we don't miss any buffered content
+              if (fullContent.trim() && !messageAdded) {
+                console.log("Adding message to state");
+                const greeting: ConversationMessage = {
+                  role: "assistant",
+                  content: fullContent.trim(),
+                  timestamp: new Date().toISOString(),
+                };
+                setMessages([greeting]);
+                setStreamingMessage("");
+                messageAdded = true;
+              } else {
+                console.log("Skipping message add - content empty or already added");
+                console.log("fullContent.trim():", fullContent.trim());
+                console.log("messageAdded:", messageAdded);
+              }
             }
           } catch (e) {
-            // Skip invalid JSON
+            console.error("Error parsing line:", e, "Line:", line);
           }
         }
+        
+        // Only exit when the stream reader itself is done
+        if (done) {
+          console.log("Stream reader done");
+          break;
+        }
       }
+      
+      // Process any remaining buffer content after stream ends
+      if (buffer.trim()) {
+        console.log("Processing remaining buffer");
+        try {
+          const data = JSON.parse(buffer);
+          if (data.content !== undefined) {
+            fullContent += data.content;
+            setStreamingMessage(fullContent);
+          }
+          if (data.done && fullContent.trim() && !messageAdded) {
+            console.log("Adding message from remaining buffer");
+            const greeting: ConversationMessage = {
+              role: "assistant",
+              content: fullContent.trim(),
+              timestamp: new Date().toISOString(),
+            };
+            setMessages([greeting]);
+            setStreamingMessage("");
+            messageAdded = true;
+          }
+        } catch (e) {
+          console.error("Error parsing remaining buffer:", e);
+        }
+      }
+      
+      // Final fallback: If we have content but no message was added, add it now
+      if (fullContent.trim() && !messageAdded) {
+        console.log("Final fallback: Adding message");
+        const greeting: ConversationMessage = {
+          role: "assistant",
+          content: fullContent.trim(),
+          timestamp: new Date().toISOString(),
+        };
+        setMessages([greeting]);
+        setStreamingMessage("");
+      } else if (!messageAdded) {
+        console.log("WARNING: No message was added! fullContent:", fullContent);
+      }
+      
+      console.log("=== FRONTEND: Stream processing complete ===\n");
     } catch (error) {
       console.error("Error starting conversation:", error);
     } finally {
       setIsLoading(false);
-      setStreamingMessage("");
+      // Don't clear streaming message here - it should already be cleared when message is added
+      // Only clear if we're in an error state
+      if (!messageAdded) {
+        console.log("Clearing streaming message in finally block");
+        setStreamingMessage("");
+      }
     }
   };
 
@@ -128,6 +208,10 @@ After you have collected the needed information, acknowledge it, wrap up the con
       content: input.trim(),
       timestamp: new Date().toISOString(),
     };
+
+    console.log("\n=== USER MESSAGE ===");
+    console.log(input.trim());
+    console.log("===================\n");
 
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
@@ -171,6 +255,10 @@ After you have collected the needed information, acknowledge it, wrap up the con
               setStreamingMessage(fullContent);
             }
             if (data.done) {
+              console.log("\n=== ASSISTANT RESPONSE (in conversation) ===");
+              console.log(fullContent);
+              console.log("==========================================\n");
+              
               const assistantMessage: ConversationMessage = {
                 role: "assistant",
                 content: fullContent,
@@ -193,7 +281,11 @@ After you have collected the needed information, acknowledge it, wrap up the con
                 setConversationEnded(true);
                 onConversationEnd?.();
                 setShowMoodSelector(true);
-                void prepareMoodSuggestion(updatedMessages);
+                // Start both mood analysis and summary generation in parallel
+                void Promise.all([
+                  prepareMoodSuggestion(updatedMessages),
+                  generateSummary(updatedMessages)
+                ]);
               }
             }
           } catch (e) {
@@ -210,6 +302,7 @@ After you have collected the needed information, acknowledge it, wrap up the con
   };
 
   const prepareMoodSuggestion = async (conversation: ConversationMessage[]) => {
+    setIsAnalyzingMood(true);
     try {
       const moodResponse = await fetch("/api/ollama/analyze-mood", {
         method: "POST",
@@ -223,23 +316,94 @@ After you have collected the needed information, acknowledge it, wrap up the con
       }
     } catch (error) {
       console.error("Error analyzing mood:", error);
+    } finally {
+      setIsAnalyzingMood(false);
     }
   };
 
   const generateSummary = async (conversation: ConversationMessage[]) => {
-    const summaryResponse = await fetch("/api/journal/summarize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation }),
-    });
+    setIsGeneratingSummary(true);
+    setStreamingSummary("");
+    try {
+      // Check if summarize endpoint supports streaming
+      const summaryResponse = await fetch("/api/journal/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation }),
+      });
 
-    const summaryData = await summaryResponse.json();
-    setSummary(summaryData.summary);
-    return summaryData.summary as string;
+      if (!summaryResponse.body) {
+        throw new Error("No response body");
+      }
+
+      // Try to stream the summary if possible
+      const reader = summaryResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let fullSummary = "";
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          // Try streaming format first
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.content !== undefined) {
+                fullSummary += data.content;
+                setStreamingSummary(fullSummary);
+              }
+              if (data.done && fullSummary) {
+                setSummary(fullSummary);
+                setStreamingSummary("");
+                return fullSummary;
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          } else {
+            // If not streaming format, try to parse as JSON directly (fallback)
+            try {
+              const data = JSON.parse(line);
+              if (data.summary) {
+                fullSummary = data.summary;
+                setStreamingSummary(fullSummary);
+                setSummary(fullSummary);
+                setStreamingSummary("");
+                return fullSummary;
+              }
+            } catch (e) {
+              // Not JSON, continue
+            }
+          }
+        }
+      }
+
+      // If we got content but no done signal, set it anyway
+      if (fullSummary && !summary) {
+        setSummary(fullSummary);
+        setStreamingSummary("");
+      }
+      
+      return fullSummary;
+    } catch (error) {
+      console.error("Error generating summary:", error);
+      return "";
+    } finally {
+      setIsGeneratingSummary(false);
+    }
   };
 
   const handleMoodSelect = async (mood: number) => {
-    if (isFinalizing) return;
+    if (isFinalizing || isCompleted) return;
 
     setIsFinalizing(true);
     try {
@@ -256,6 +420,8 @@ After you have collected the needed information, acknowledge it, wrap up the con
 
       const finalSummary = summary || (await generateSummary(currentMessages));
       await onComplete(currentMessages, finalSummary, mood);
+      setIsCompleted(true);
+      setIsFinalizing(false);
     } catch (error) {
       console.error("Error finalizing conversation:", error);
       alert("Something went wrong while finishing your entry. Please try again.");
@@ -272,13 +438,15 @@ After you have collected the needed information, acknowledge it, wrap up the con
   };
 
   return (
-    <div className="flex flex-col h-full bg-github-dark border border-github-dark-border rounded-lg">
-      <div className="p-4 border-b border-github-dark-border">
-        <h3 className="text-lg font-semibold">{chatbotProfile.name}</h3>
-        <p className="text-sm text-gray-400">{chatbotProfile.description}</p>
-      </div>
+    <div className="flex flex-col lg:flex-row h-full gap-4">
+      {/* Chat Interface */}
+      <div className={`flex flex-col ${showMoodSelector ? 'flex-1' : 'w-full'} h-full bg-github-dark border border-github-dark-border rounded-lg min-w-0`}>
+        <div className="p-4 border-b border-github-dark-border">
+          <h3 className="text-lg font-semibold">{chatbotProfile.name}</h3>
+          <p className="text-sm text-gray-400">{chatbotProfile.description}</p>
+        </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message, index) => (
           <div
             key={index}
@@ -326,22 +494,67 @@ After you have collected the needed information, acknowledge it, wrap up the con
             </div>
           </div>
         )}
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
+
+        {!showMoodSelector && (
+          <div className="p-4 border-t border-github-dark-border">
+            <div className="flex gap-2">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type your message..."
+                className="flex-1 bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none"
+                rows={2}
+                disabled={isLoading || conversationEnded}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isLoading || conversationEnded}
+                className="px-6 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Summary and Mood Selector Panel */}
       {showMoodSelector && (
-        <div className="p-4 border-t border-github-dark-border bg-github-dark-hover">
-          {summary && (
+        <div className="lg:w-96 w-full bg-github-dark border border-github-dark-border rounded-lg flex flex-col">
+          <div className="p-4 border-b border-github-dark-border">
+            <h3 className="text-lg font-semibold">Entry Summary</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="mb-4">
               <h4 className="font-semibold mb-2">Summary:</h4>
-              <div className="prose prose-invert prose-sm max-w-none bg-github-dark rounded p-3">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
-              </div>
+              {isGeneratingSummary ? (
+                <div className="bg-github-dark rounded p-3">
+                  {streamingSummary ? (
+                    <div className="prose prose-invert prose-sm max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingSummary}</ReactMarkdown>
+                      <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse" />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-gray-400">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }} />
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.4s" }} />
+                      <span className="text-sm">Generating summary...</span>
+                    </div>
+                  )}
+                </div>
+              ) : summary ? (
+                <div className="prose prose-invert prose-sm max-w-none bg-github-dark rounded p-3">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+                </div>
+              ) : null}
             </div>
-          )}
-          <div>
-            <h4 className="font-semibold mb-2">How are you feeling today?</h4>
-            <div className="flex gap-2">
+            <div>
+              <h4 className="font-semibold mb-2">How are you feeling today?</h4>
+              <div className="flex gap-2">
               {MOOD_OPTIONS.map((mood) => (
                 <button
                   key={mood.value}
@@ -351,43 +564,54 @@ After you have collected the needed information, acknowledge it, wrap up the con
                       ? "border-github-green bg-github-green/20"
                       : "border-github-dark-border hover:border-github-green/50"
                   } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  disabled={isFinalizing}
+                  disabled={isFinalizing || isCompleted || suggestedMood === null || isAnalyzingMood}
+                  title={suggestedMood === null || isAnalyzingMood ? "Waiting for AI mood suggestion..." : ""}
                 >
                   <div className="text-2xl mb-1">{mood.emoji}</div>
                   <div className="text-xs">{mood.label}</div>
                 </button>
               ))}
+              </div>
+              {isAnalyzingMood ? (
+                <p className="text-xs text-gray-400 mt-2">Analyzing your mood...</p>
+              ) : suggestedMood !== null ? (
+                <p className="text-xs text-gray-400 mt-2">
+                  Suggested: {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.emoji}{" "}
+                  {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.label}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-400 mt-2">Waiting for mood suggestion...</p>
+              )}
+              {isFinalizing && (
+                <p className="text-xs text-gray-400 mt-2">Finalizing your entry...</p>
+              )}
+              {isCompleted && (
+                <div className="mt-4 p-3 bg-github-green/20 border border-github-green rounded-lg space-y-2">
+                  <p className="text-sm text-github-green font-semibold mb-2">✓ Entry saved successfully!</p>
+                  <p className="text-xs text-gray-400 mb-3">Your journal entry has been saved and synced to GitHub.</p>
+                  <div className="flex gap-2">
+                    {entryDate && session?.user && (
+                      <a
+                        href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${entryDate}.md`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg font-medium transition-colors border border-github-dark-border text-center text-sm"
+                      >
+                        View in GitHub
+                      </a>
+                    )}
+                    {onNavigateToEntries && (
+                      <button
+                        onClick={onNavigateToEntries}
+                        className="flex-1 px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors"
+                      >
+                        View All Entries
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-            <p className="text-xs text-gray-400 mt-2">
-              Suggested: {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.emoji}{" "}
-              {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.label}
-            </p>
-            {isFinalizing && (
-              <p className="text-xs text-gray-400 mt-2">Finalizing your entry...</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {!showMoodSelector && (
-        <div className="p-4 border-t border-github-dark-border">
-          <div className="flex gap-2">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              className="flex-1 bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none"
-              rows={2}
-              disabled={isLoading || conversationEnded}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isLoading || conversationEnded}
-              className="px-6 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Send
-            </button>
           </div>
         </div>
       )}

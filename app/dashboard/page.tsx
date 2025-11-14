@@ -12,7 +12,6 @@ export default function Dashboard() {
   const router = useRouter();
   const [entries, setEntries] = useState<Map<string, JournalEntry>>(new Map());
   const [loading, setLoading] = useState(true);
-  const currentYear = new Date().getFullYear();
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -22,19 +21,46 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (session) {
-      fetchEntries();
+      // Sync entries from GitHub first
+      fetch("/api/journal/sync", { method: "POST" })
+        .then(() => fetchEntries())
+        .catch((error) => {
+          console.error("Error syncing entries:", error);
+          fetchEntries(); // Still try to fetch local entries
+        });
     }
   }, [session]);
 
   const fetchEntries = async () => {
     try {
-      const response = await fetch(`/api/journal?year=${currentYear}`);
+      // Fetch all entries (we'll filter to last year in the component)
+      const response = await fetch("/api/journal");
       if (response.ok) {
         const data = await response.json();
-        setEntries(new Map(Object.entries(data)));
+        // Ensure data is an array
+        if (Array.isArray(data)) {
+          // Filter to last year and convert to Map
+          const oneYearAgo = new Date();
+          oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+          const filteredEntries = data.filter((entry: JournalEntry) => {
+            const entryDate = new Date(entry.date);
+            return entryDate >= oneYearAgo;
+          });
+          const entriesMap = new Map<string, JournalEntry>();
+          filteredEntries.forEach((entry: JournalEntry) => {
+            entriesMap.set(entry.date, entry);
+          });
+          setEntries(entriesMap);
+        } else {
+          setEntries(new Map());
+        }
+      } else {
+        console.error("Failed to fetch entries:", response.status, response.statusText);
+        setEntries(new Map());
       }
     } catch (error) {
       console.error("Error fetching entries:", error);
+      setEntries(new Map());
     } finally {
       setLoading(false);
     }
@@ -66,7 +92,7 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <ContributionGraph entries={entries} year={currentYear} />
+            <ContributionGraph entries={entries} />
           </div>
           <div className="space-y-6">
             <div className="bg-github-dark border border-github-dark-border rounded-lg p-6">
@@ -94,7 +120,7 @@ export default function Dashboard() {
                   <span className="font-semibold">{entries.size}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">This Year</span>
+                  <span className="text-gray-400">Last Year</span>
                   <span className="font-semibold">{entries.size}</span>
                 </div>
               </div>

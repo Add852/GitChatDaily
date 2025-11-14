@@ -14,7 +14,18 @@ interface ContributionGraphProps {
 export function ContributionGraph({ entries, year = new Date().getFullYear() }: ContributionGraphProps) {
   const router = useRouter();
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
-  const days = getDaysInYear(year);
+  
+  // Get days from 1 year ago to today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(today.getFullYear() - 1);
+  
+  const days: Date[] = [];
+  for (let d = new Date(oneYearAgo); d <= today; d.setDate(d.getDate() + 1)) {
+    days.push(new Date(d));
+  }
+  
   const weeks: Date[][] = [];
   
   // Group days into weeks (Sunday = 0, Monday = 1, etc.)
@@ -22,7 +33,7 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
   const firstDay = days[0];
   const firstWeekday = getWeekday(firstDay);
   
-  // Add empty slots for days before the first day of the year
+  // Add empty slots for days before the first day
   for (let i = 0; i < firstWeekday; i++) {
     currentWeek.push(new Date(0)); // Placeholder for empty days
   }
@@ -50,7 +61,8 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
     if (entry) {
       return CONTRIBUTION_GRAPH_COLORS[entry.mood as keyof typeof CONTRIBUTION_GRAPH_COLORS] || CONTRIBUTION_GRAPH_COLORS[0];
     }
-    return CONTRIBUTION_GRAPH_COLORS[0];
+    // Gray for non-existent entries (GitHub style)
+    return "#161b22";
   };
 
   const getEntryInfo = (date: Date) => {
@@ -60,13 +72,19 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
 
   const handleTileClick = (date: Date) => {
     const dateKey = formatDate(date);
-    router.push(`/entries/${dateKey}`);
+    const entry = entries.get(dateKey);
+    if (entry) {
+      router.push(`/entries/${dateKey}`);
+    } else {
+      // If no entry exists, go to journal page to create one
+      router.push(`/journal?date=${dateKey}`);
+    }
   };
 
   return (
     <div className="bg-github-dark border border-github-dark-border rounded-lg p-6">
-      <h2 className="text-xl font-semibold mb-4">Journal Activity {year}</h2>
-      <div className="overflow-x-auto">
+      <h2 className="text-xl font-semibold mb-4">Journal Activity (Last Year)</h2>
+      <div className="overflow-x-hidden">
         <div className="flex gap-1">
           {weeks.map((week, weekIndex) => (
             <div key={weekIndex} className="flex flex-col gap-1">
@@ -93,8 +111,8 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
                     className="w-3 h-3 rounded-sm cursor-pointer transition-all"
                     style={{
                       backgroundColor: color,
-                      border: isHovered ? "2px solid #58a6ff" : "1px solid rgba(255,255,255,0.1)",
-                      transform: isHovered ? "scale(1.2)" : "scale(1)",
+                      border: isHovered ? "2px solid #58a6ff" : "1px solid rgba(255,255,255,0.05)",
+                      transform: isHovered ? "scale(1.15)" : "scale(1)",
                     }}
                     onMouseEnter={() => setHoveredDate(dateKey)}
                     onMouseLeave={() => setHoveredDate(null)}
@@ -110,7 +128,12 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
       <div className="mt-4 flex items-center justify-between text-sm text-gray-400">
         <span>Less</span>
         <div className="flex gap-1">
-          {[0, 1, 2, 3, 4, 5].map((level) => (
+          <div
+            className="w-3 h-3 rounded-sm"
+            style={{ backgroundColor: "#161b22", border: "1px solid rgba(255,255,255,0.05)" }}
+            title="No entry"
+          />
+          {[1, 2, 3, 4, 5].map((level) => (
             <div
               key={level}
               className="w-3 h-3 rounded-sm"

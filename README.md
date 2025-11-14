@@ -18,7 +18,7 @@ A GitHub-themed daily conversational chatbot journaling system that syncs your j
 ### Prerequisites
 
 - Node.js 18+ 
-- Ollama installed and running with phi3.5 model
+- Ollama installed and running with llama3.2:3b model
 
 ### Installation
 
@@ -56,9 +56,9 @@ npm run dev
 ## Ollama Setup
 
 1. Install Ollama from [ollama.ai](https://ollama.ai)
-2. Pull the phi3.5 model:
+2. Pull the llama3.2:3b model:
 ```bash
-ollama pull phi3.5
+ollama pull llama3.2:3b
 ```
 3. Start Ollama (it should run on http://localhost:11434 by default)
 
