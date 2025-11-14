@@ -18,7 +18,6 @@ export default function ProfilesPage() {
     name: "",
     description: "",
     systemPrompt: "",
-    isDefault: false,
   });
 
   useEffect(() => {
@@ -54,7 +53,7 @@ export default function ProfilesPage() {
       name: formData.name,
       description: formData.description,
       systemPrompt: formData.systemPrompt,
-      isDefault: formData.isDefault,
+      isCurrent: editingProfile?.isCurrent ?? false,
       createdAt: editingProfile?.createdAt || new Date().toISOString(),
     };
 
@@ -73,7 +72,6 @@ export default function ProfilesPage() {
           name: "",
           description: "",
           systemPrompt: "",
-          isDefault: false,
         });
       }
     } catch (error) {
@@ -88,9 +86,28 @@ export default function ProfilesPage() {
       name: profile.name,
       description: profile.description,
       systemPrompt: profile.systemPrompt,
-      isDefault: profile.isDefault,
     });
     setShowCreateForm(true);
+  };
+
+  const handleSetCurrent = async (profile: ChatbotProfile) => {
+    try {
+      const response = await fetch("/api/chatbot-profiles/current", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: profile.id }),
+      });
+
+      if (response.ok) {
+        await fetchProfiles();
+      } else {
+        const error = await response.json();
+        alert(error.error || "Failed to set current profile");
+      }
+    } catch (error) {
+      console.error("Error setting current profile:", error);
+      alert("Failed to set current profile. Please try again.");
+    }
   };
 
   const handleDelete = async (profile: ChatbotProfile) => {
@@ -144,6 +161,9 @@ export default function ProfilesPage() {
           <div>
             <h1 className="text-3xl font-bold mb-2">Chatbot Profiles</h1>
             <p className="text-gray-400">Customize your AI companion's personality</p>
+            <p className="text-sm text-gray-500 mt-1">
+              Only the current profile is used in conversations. Switch it below when you're ready for a new persona.
+            </p>
           </div>
           <button
             onClick={() => {
@@ -153,7 +173,6 @@ export default function ProfilesPage() {
                 name: "",
                 description: "",
                 systemPrompt: DEFAULT_CHATBOT_PROFILE.systemPrompt,
-                isDefault: false,
               });
             }}
             className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors"
@@ -200,18 +219,6 @@ export default function ProfilesPage() {
                   Define the chatbot's personality, goals, and behavior
                 </p>
               </div>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="isDefault"
-                  checked={formData.isDefault}
-                  onChange={(e) => setFormData({ ...formData, isDefault: e.target.checked })}
-                  className="w-4 h-4 text-github-green bg-github-dark-hover border-github-dark-border rounded focus:ring-github-green"
-                />
-                <label htmlFor="isDefault" className="ml-2 text-sm">
-                  Set as default profile
-                </label>
-              </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
@@ -244,21 +251,29 @@ export default function ProfilesPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <h3 className="text-xl font-semibold">{profile.name}</h3>
-                    {profile.isDefault && (
+                    {profile.isCurrent && (
                       <span className="px-2 py-1 bg-github-green/20 text-github-green text-xs rounded">
-                        Default
+                        Current
                       </span>
                     )}
                   </div>
                   <p className="text-gray-400 mb-3">{profile.description}</p>
                   <div className="bg-github-dark-hover rounded p-3">
                     <p className="text-sm text-gray-300 font-mono whitespace-pre-wrap">
-                      {profile.systemPrompt.substring(0, 200)}
-                      {profile.systemPrompt.length > 200 && "..."}
+                      {(profile.systemPrompt ?? "").substring(0, 200)}
+                      {(profile.systemPrompt ?? "").length > 200 && "..."}
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  {!profile.isCurrent && (
+                    <button
+                      onClick={() => handleSetCurrent(profile)}
+                      className="px-4 py-2 bg-github-green/20 hover:bg-github-green/30 text-github-green rounded-lg text-sm transition-colors border border-github-green/40"
+                    >
+                      Set as current
+                    </button>
+                  )}
                   <button
                     onClick={() => handleEdit(profile)}
                     className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border"

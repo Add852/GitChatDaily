@@ -2,7 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ChatbotInterface } from "@/components/ChatbotInterface";
 import { ChatbotProfile, ConversationMessage, JournalEntry } from "@/types";
@@ -14,12 +14,10 @@ export default function JournalPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [chatbotProfile, setChatbotProfile] = useState<ChatbotProfile | null>(null);
-  const [chatbotProfiles, setChatbotProfiles] = useState<ChatbotProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [conversationActive, setConversationActive] = useState(false);
   const [existingEntry, setExistingEntry] = useState<JournalEntry | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
-  const profilesLoadedRef = useRef(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -39,7 +37,7 @@ export default function JournalPage() {
 
   useEffect(() => {
     if (session && selectedDate) {
-      fetchChatbotProfiles();
+      fetchChatbotProfile();
       checkExistingEntry();
     }
     // Only fetch once when session is available, not on every render
@@ -47,7 +45,7 @@ export default function JournalPage() {
   }, [session?.user?.githubId, selectedDate]);
 
   const checkExistingEntry = async () => {
-    if (!session?.user?.githubId || !selectedDate) return;
+    if (!session?.user?.githubId || !selectedDate || !chatbotProfile) return;
     try {
       // First sync entries from GitHub
       await fetch("/api/journal/sync", { method: "POST" });
@@ -66,59 +64,26 @@ export default function JournalPage() {
     }
   };
 
-  const fetchChatbotProfiles = async () => {
+  const fetchChatbotProfile = async () => {
     try {
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
         const profiles = await response.json();
         if (Array.isArray(profiles) && profiles.length > 0) {
-          setChatbotProfiles(profiles);
-          
-          // Only set default profile on initial load
-          if (!profilesLoadedRef.current) {
-            profilesLoadedRef.current = true;
-            // On first load, use the currently selected profile if it exists, otherwise use default
-            const currentProfileId = chatbotProfile?.id;
-            if (currentProfileId) {
-              const currentProfile = profiles.find((p: ChatbotProfile) => p.id === currentProfileId);
-              if (currentProfile) {
-                setChatbotProfile(currentProfile);
-              } else {
-                // Current profile not found, use default
-                const defaultProfile = profiles.find((p: ChatbotProfile) => p.isDefault) || profiles[0] || DEFAULT_CHATBOT_PROFILE;
-                setChatbotProfile(defaultProfile);
-              }
-            } else {
-              // No profile selected yet, use default
-              const defaultProfile = profiles.find((p: ChatbotProfile) => p.isDefault) || profiles[0] || DEFAULT_CHATBOT_PROFILE;
-              setChatbotProfile(defaultProfile);
-            }
-          } else {
-            // On subsequent loads, preserve the current selection if it still exists
-            if (chatbotProfile) {
-              const currentProfile = profiles.find((p: ChatbotProfile) => p.id === chatbotProfile.id);
-              if (currentProfile) {
-                // Update the profile object in case it changed
-                setChatbotProfile(currentProfile);
-              } else {
-                // Current profile was deleted, fallback to default
-                const defaultProfile = profiles.find((p: ChatbotProfile) => p.isDefault) || profiles[0] || DEFAULT_CHATBOT_PROFILE;
-                setChatbotProfile(defaultProfile);
-              }
-            }
-          }
-        } else {
-          // No profiles found, use default
-          setChatbotProfiles([DEFAULT_CHATBOT_PROFILE]);
-          if (!chatbotProfile) {
-            setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
-          }
+          const current =
+            profiles.find((p: ChatbotProfile) => p.isCurrent) ||
+            profiles[0] ||
+            DEFAULT_CHATBOT_PROFILE;
+          setChatbotProfile(current);
+          return;
         }
+      }
+      // If response not ok or no profiles
+      if (!chatbotProfile) {
+        setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
       }
     } catch (error) {
       console.error("Error fetching chatbot profiles:", error);
-      // Fallback to default on error
-      setChatbotProfiles([DEFAULT_CHATBOT_PROFILE]);
       if (!chatbotProfile) {
         setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
       }
@@ -132,7 +97,7 @@ export default function JournalPage() {
     summary: string,
     mood: number
   ) => {
-    if (!session?.user?.githubId || !selectedDate) return;
+    if (!session?.user?.githubId || !selectedDate || !chatbotProfile) return;
 
     const entry: JournalEntry = {
       id: `${session.user.githubId}-${selectedDate}`,
@@ -241,30 +206,18 @@ export default function JournalPage() {
               </div>
             )}
           </div>
-          {chatbotProfiles.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium mb-2">Chatbot Profile</label>
-              <select
-                value={chatbotProfile.id}
-                onChange={(e) => {
-                  if (conversationActive) {
-                    alert("Cannot change profile during an active conversation. Please finish or refresh the page.");
-                    return;
-                  }
-                  const selected = chatbotProfiles.find((p) => p.id === e.target.value);
-                  if (selected) {
-                    setChatbotProfile(selected);
-                  }
-                }}
-                disabled={conversationActive}
-                className="bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green disabled:opacity-50 disabled:cursor-not-allowed"
+          {chatbotProfile && (
+            <div className="text-right">
+              <p className="text-sm text-gray-400">
+                Current profile: <span className="text-white font-semibold">{chatbotProfile.name}</span>
+              </p>
+              <button
+                type="button"
+                className="text-xs text-github-green hover:text-github-green-hover underline mt-1"
+                onClick={() => router.push("/profiles")}
               >
-                {chatbotProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name} {profile.isDefault ? "(Default)" : ""}
-                  </option>
-                ))}
-              </select>
+                Manage profiles
+              </button>
             </div>
           )}
         </div>

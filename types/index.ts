@@ -20,7 +20,7 @@ export interface ChatbotProfile {
   name: string;
   description: string;
   systemPrompt: string;
-  isDefault: boolean;
+  isCurrent?: boolean;
   createdAt: string;
 }
 

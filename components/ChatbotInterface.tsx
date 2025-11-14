@@ -35,12 +35,15 @@ export function ChatbotInterface({
   const [summary, setSummary] = useState("");
   const [streamingSummary, setStreamingSummary] = useState("");
   const [suggestedMood, setSuggestedMood] = useState<number | null>(null);
+  const [selectedMood, setSelectedMood] = useState<number | null>(null);
   const [conversationEnded, setConversationEnded] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [isAnalyzingMood, setIsAnalyzingMood] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationStarted = useRef(false);
 
   const buildSystemPrompt = (profile: ChatbotProfile) =>
@@ -59,18 +62,56 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     scrollToBottom();
   }, [messages, streamingMessage]);
 
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === "assistant" && !conversationEnded) {
+      inputRef.current?.focus();
+    }
+  }, [messages, conversationEnded]);
+
+  useEffect(() => {
+    if (suggestedMood !== null && selectedMood === null) {
+      setSelectedMood(suggestedMood);
+    }
+  }, [suggestedMood, selectedMood]);
+
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!chatContainerRef.current || !shouldAutoScrollRef.current) return;
+    chatContainerRef.current.scrollTo({
+      top: chatContainerRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   };
+
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      shouldAutoScrollRef.current = distanceFromBottom < 80;
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
 
   const startConversation = async () => {
     setIsLoading(true);
     setStreamingMessage("");
     setShowMoodSelector(false);
     setSummary("");
-    setSuggestedMood(3);
+    setStreamingSummary("");
+    setSuggestedMood(null);
+    setSelectedMood(null);
     setConversationEnded(false);
     setIsFinalizing(false);
+    setIsCompleted(false);
+    setIsGeneratingSummary(false);
+    setIsAnalyzingMood(false);
     onConversationStart?.();
     let messageAdded = false; // Declare outside try block so it's accessible in finally
     try {
@@ -313,9 +354,12 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
       const moodData = await moodResponse.json();
       if (typeof moodData.mood === "number") {
         setSuggestedMood(moodData.mood);
+      } else {
+        setSuggestedMood(3);
       }
     } catch (error) {
       console.error("Error analyzing mood:", error);
+      setSuggestedMood((prev) => prev ?? 3);
     } finally {
       setIsAnalyzingMood(false);
     }
@@ -402,8 +446,13 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     }
   };
 
-  const handleMoodSelect = async (mood: number) => {
+  const handleMoodPick = (mood: number) => {
     if (isFinalizing || isCompleted) return;
+    setSelectedMood(mood);
+  };
+
+  const handleSubmitEntry = async () => {
+    if (selectedMood === null || isFinalizing || isCompleted) return;
 
     setIsFinalizing(true);
     try {
@@ -419,14 +468,13 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
         : messages;
 
       const finalSummary = summary || (await generateSummary(currentMessages));
-      await onComplete(currentMessages, finalSummary, mood);
+      await onComplete(currentMessages, finalSummary, selectedMood);
       setIsCompleted(true);
-      setIsFinalizing(false);
     } catch (error) {
       console.error("Error finalizing conversation:", error);
       alert("Something went wrong while finishing your entry. Please try again.");
+    } finally {
       setIsFinalizing(false);
-      return;
     }
   };
 
@@ -446,7 +494,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
           <p className="text-sm text-gray-400">{chatbotProfile.description}</p>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message, index) => (
           <div
             key={index}
@@ -494,20 +542,20 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
             </div>
           </div>
         )}
-          <div ref={messagesEndRef} />
         </div>
 
         {!showMoodSelector && (
           <div className="p-4 border-t border-github-dark-border">
             <div className="flex gap-2">
               <textarea
+                ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Type your message..."
-                className="flex-1 bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none"
+                className="flex-1 bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none disabled:cursor-not-allowed disabled:opacity-60"
                 rows={2}
-                disabled={isLoading || conversationEnded}
+                disabled={conversationEnded}
               />
               <button
                 onClick={handleSend}
@@ -525,93 +573,128 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
       {showMoodSelector && (
         <div className="lg:w-96 w-full bg-github-dark border border-github-dark-border rounded-lg flex flex-col">
           <div className="p-4 border-b border-github-dark-border">
-            <h3 className="text-lg font-semibold">Entry Summary</h3>
+            <h3 className="text-lg font-semibold">Entry Review</h3>
+            <p className="text-xs text-gray-400 mt-1">
+              Select your mood, review the generated summary, then submit your entry.
+            </p>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div className="mb-4">
-              <h4 className="font-semibold mb-2">Summary:</h4>
-              {isGeneratingSummary ? (
-                <div className="bg-github-dark rounded p-3">
-                  {streamingSummary ? (
-                    <div className="prose prose-invert prose-sm max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingSummary}</ReactMarkdown>
-                      <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-gray-400">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }} />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.4s" }} />
-                      <span className="text-sm">Generating summary...</span>
-                    </div>
-                  )}
-                </div>
-              ) : summary ? (
-                <div className="prose prose-invert prose-sm max-w-none bg-github-dark rounded p-3">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
-                </div>
-              ) : null}
-            </div>
-            <div>
-              <h4 className="font-semibold mb-2">How are you feeling today?</h4>
-              <div className="flex gap-2">
+          <div className="p-4 border-b border-github-dark-border">
+            <h4 className="font-semibold mb-2">How are you feeling today?</h4>
+            <div className="flex gap-2">
               {MOOD_OPTIONS.map((mood) => (
                 <button
                   key={mood.value}
-                  onClick={() => handleMoodSelect(mood.value)}
+                  onClick={() => handleMoodPick(mood.value)}
                   className={`flex-1 p-3 rounded-lg border-2 transition-all ${
-                    mood.value === suggestedMood
+                    mood.value === selectedMood
                       ? "border-github-green bg-github-green/20"
                       : "border-github-dark-border hover:border-github-green/50"
                   } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  disabled={isFinalizing || isCompleted || suggestedMood === null || isAnalyzingMood}
-                  title={suggestedMood === null || isAnalyzingMood ? "Waiting for AI mood suggestion..." : ""}
+                  disabled={isFinalizing || isCompleted || isAnalyzingMood}
                 >
                   <div className="text-2xl mb-1">{mood.emoji}</div>
                   <div className="text-xs">{mood.label}</div>
                 </button>
               ))}
-              </div>
-              {isAnalyzingMood ? (
-                <p className="text-xs text-gray-400 mt-2">Analyzing your mood...</p>
-              ) : suggestedMood !== null ? (
-                <p className="text-xs text-gray-400 mt-2">
-                  Suggested: {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.emoji}{" "}
-                  {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.label}
-                </p>
-              ) : (
-                <p className="text-xs text-gray-400 mt-2">Waiting for mood suggestion...</p>
-              )}
-              {isFinalizing && (
-                <p className="text-xs text-gray-400 mt-2">Finalizing your entry...</p>
-              )}
-              {isCompleted && (
-                <div className="mt-4 p-3 bg-github-green/20 border border-github-green rounded-lg space-y-2">
-                  <p className="text-sm text-github-green font-semibold mb-2">✓ Entry saved successfully!</p>
-                  <p className="text-xs text-gray-400 mb-3">Your journal entry has been saved and synced to GitHub.</p>
-                  <div className="flex gap-2">
-                    {entryDate && session?.user && (
-                      <a
-                        href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${entryDate}.md`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg font-medium transition-colors border border-github-dark-border text-center text-sm"
-                      >
-                        View in GitHub
-                      </a>
-                    )}
-                    {onNavigateToEntries && (
-                      <button
-                        onClick={onNavigateToEntries}
-                        className="flex-1 px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors"
-                      >
-                        View All Entries
-                      </button>
+            </div>
+            {isAnalyzingMood ? (
+              <p className="text-xs text-gray-400 mt-2">Analyzing your mood...</p>
+            ) : suggestedMood !== null ? (
+              <p className="text-xs text-gray-400 mt-2">
+                Suggested: {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.emoji}{" "}
+                {MOOD_OPTIONS.find((m) => m.value === suggestedMood)?.label}
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-2">Select the mood that fits best.</p>
+            )}
+            {selectedMood === null && !isAnalyzingMood && (
+              <p className="text-xs text-yellow-400 mt-1">Choose a mood to enable submission.</p>
+            )}
+          </div>
+          <div className="flex-1 min-h-0 p-4">
+            <div className="flex flex-col h-full overflow-hidden">
+              <h4 className="font-semibold mb-2">Summary</h4>
+              <div className="flex-1 min-h-0 max-h-full overflow-hidden">
+                {isGeneratingSummary ? (
+                  <div className="bg-github-dark rounded p-3 border border-github-dark-border h-full overflow-y-auto">
+                    {streamingSummary ? (
+                      <div className="prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingSummary}</ReactMarkdown>
+                        <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                        <div
+                          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "0.2s" }}
+                        />
+                        <div
+                          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "0.4s" }}
+                        />
+                        <span className="text-sm">Generating summary...</span>
+                      </div>
                     )}
                   </div>
-                </div>
-              )}
+                ) : summary ? (
+                  <div className="prose prose-invert prose-sm max-w-none bg-github-dark rounded p-3 border border-github-dark-border h-full overflow-y-auto">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-gray-400 border border-dashed border-github-dark-border rounded p-3">
+                    Summary will appear here once ready.
+                  </div>
+                )}
+              </div>
             </div>
+          </div>
+          <div className="p-4 border-t border-github-dark-border space-y-3">
+            {!isCompleted && (
+              <button
+                onClick={handleSubmitEntry}
+                disabled={
+                  selectedMood === null ||
+                  isFinalizing ||
+                  isGeneratingSummary ||
+                  isAnalyzingMood
+                }
+                className="w-full px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isFinalizing ? "Saving Entry..." : "Submit Entry"}
+              </button>
+            )}
+            {isFinalizing && !isCompleted && (
+              <p className="text-xs text-gray-400">Finalizing your entry...</p>
+            )}
+            {isCompleted && (
+              <div className="p-3 bg-github-green/20 border border-github-green rounded-lg space-y-3">
+                <p className="text-sm text-github-green font-semibold">✓ Entry saved successfully!</p>
+                <p className="text-xs text-gray-400">
+                  Your journal entry has been saved and synced to GitHub.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {entryDate && session?.user && (
+                    <a
+                      href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${entryDate}.md`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg font-medium transition-colors border border-github-dark-border text-center text-sm"
+                    >
+                      View in GitHub
+                    </a>
+                  )}
+                  {onNavigateToEntries && (
+                    <button
+                      onClick={onNavigateToEntries}
+                      className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm"
+                    >
+                      View All Entries
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -61,7 +61,7 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
     if (entry) {
       return CONTRIBUTION_GRAPH_COLORS[entry.mood as keyof typeof CONTRIBUTION_GRAPH_COLORS] || CONTRIBUTION_GRAPH_COLORS[0];
     }
-    // Gray for non-existent entries (GitHub style)
+    // Dark tile for days without entries
     return "#161b22";
   };
 
@@ -84,45 +84,47 @@ export function ContributionGraph({ entries, year = new Date().getFullYear() }: 
   return (
     <div className="bg-github-dark border border-github-dark-border rounded-lg p-6">
       <h2 className="text-xl font-semibold mb-4">Journal Activity (Last Year)</h2>
-      <div className="overflow-x-hidden">
-        <div className="flex gap-1">
-          {weeks.map((week, weekIndex) => (
-            <div key={weekIndex} className="flex flex-col gap-1">
-              {week.map((day, dayIndex) => {
-                // Skip placeholder days
-                if (day.getTime() === 0) {
+      <div className="overflow-hidden">
+        <div className="flex justify-end">
+          <div className="flex gap-1 min-w-max">
+            {weeks.map((week, weekIndex) => (
+              <div key={weekIndex} className="flex flex-col gap-1">
+                {week.map((day, dayIndex) => {
+                  // Skip placeholder days
+                  if (day.getTime() === 0) {
+                    return (
+                      <div
+                        key={dayIndex}
+                        className="w-3 h-3 rounded-sm"
+                        style={{ backgroundColor: "transparent" }}
+                      />
+                    );
+                  }
+
+                  const dateKey = formatDate(day);
+                  const entry = getEntryInfo(day);
+                  const isHovered = hoveredDate === dateKey;
+                  const color = getMoodColor(day);
+
                   return (
                     <div
                       key={dayIndex}
-                      className="w-3 h-3 rounded-sm"
-                      style={{ backgroundColor: "transparent" }}
+                      className="w-3 h-3 rounded-sm cursor-pointer transition-all"
+                      style={{
+                        backgroundColor: color,
+                        border: isHovered ? "2px solid #58a6ff" : "1px solid rgba(255,255,255,0.05)",
+                        transform: isHovered ? "scale(1.15)" : "scale(1)",
+                      }}
+                      onMouseEnter={() => setHoveredDate(dateKey)}
+                      onMouseLeave={() => setHoveredDate(null)}
+                      onClick={() => handleTileClick(day)}
+                      title={entry ? `${dateKey} - Mood: ${entry.mood}/5` : dateKey}
                     />
                   );
-                }
-                
-                const dateKey = formatDate(day);
-                const entry = getEntryInfo(day);
-                const isHovered = hoveredDate === dateKey;
-                const color = getMoodColor(day);
-                
-                return (
-                  <div
-                    key={dayIndex}
-                    className="w-3 h-3 rounded-sm cursor-pointer transition-all"
-                    style={{
-                      backgroundColor: color,
-                      border: isHovered ? "2px solid #58a6ff" : "1px solid rgba(255,255,255,0.05)",
-                      transform: isHovered ? "scale(1.15)" : "scale(1)",
-                    }}
-                    onMouseEnter={() => setHoveredDate(dateKey)}
-                    onMouseLeave={() => setHoveredDate(null)}
-                    onClick={() => handleTileClick(day)}
-                    title={entry ? `${dateKey} - Mood: ${entry.mood}/5` : dateKey}
-                  />
-                );
-              })}
-            </div>
-          ))}
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
       <div className="mt-4 flex items-center justify-between text-sm text-gray-400">
