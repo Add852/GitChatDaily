@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { ConversationMessage, ChatbotProfile, HighlightItem } from "@/types";
-import { MOOD_OPTIONS } from "@/lib/constants";
+import { MOOD_OPTIONS, clampResponseCount } from "@/lib/constants";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -50,11 +50,34 @@ export function ChatbotInterface({
   const shouldAutoScrollRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationStarted = useRef(false);
+  const conversationEndedRef = useRef(false);
+  const responseLimit = clampResponseCount(chatbotProfile.responseCount);
 
   const buildSystemPrompt = (profile: ChatbotProfile) =>
-    `You are a chatbot designed to help users document their day. Your goal is to gather three key pieces of information: today's highlight or standout moment, a problem they dealt with today, and something they're grateful for. You may ask follow-up questions when helpful, but stay focused on collecting just enough detail to craft a concise journal entry. Keep the total question count to five or fewer. After you have collected the needed information, DO NOT craft the journal entry, just acknowledge the information they provided, wrap up the conversation, and end with a 📝 emoji as a delimiter to signal the chat is finished. Conduct the conversation in a realistic text-chat tone. Adopt this persona or identity during the conversation: ${profile.systemPrompt}.
+    `Converse with the user using this persona or identity in a realistic text-chat tone: ${profile.systemPrompt}. 
+  You have a maximum of ${responseLimit} total responses, including your initial greeting and final wrap-up. Plan your questions so that by response #${Math.max(responseLimit - 1,1)} you have conversed enough with the user to achieve your goal/persona, and use response #${responseLimit} to acknowledge what you heard, wrap up, and end the chat.  
+  CRITICAL INSTRUCTION: When you receive a message that says "Start the conversation" or when this is the very first message in the conversation, you MUST ignore that message and immediately begin conversing with the user.`;
+  const handleConversationCompletion = async (updatedMessages: ConversationMessage[]) => {
+    if (conversationEndedRef.current) {
+      return;
+    }
+    conversationEndedRef.current = true;
+    setConversationEnded(true);
+    onConversationEnd?.();
+    setShowMoodSelector(true);
+    await Promise.all([prepareMoodSuggestion(updatedMessages), generateEntryPreview(updatedMessages)]);
+  };
 
-CRITICAL INSTRUCTION: When you receive a message that says "Start the conversation" or when this is the very first message in the conversation, you MUST ignore that message and immediately begin with a short greeting and your first question about their day. DO NOT ever use the emoji 📝 anywhere unless you are ending conversation`;
+  const evaluateConversationState = async (updatedMessages: ConversationMessage[]) => {
+    const assistantMessages = updatedMessages.filter((m) => m.role === "assistant");
+    const assistantMessageCount = assistantMessages.length;
+    const reachedResponseLimit = assistantMessageCount >= responseLimit;
+
+    if (!conversationEndedRef.current && reachedResponseLimit) {
+      await handleConversationCompletion(updatedMessages);
+    }
+  };
+
 
   useEffect(() => {
     if (initialConversation.length === 0 && !conversationStarted.current) {
@@ -73,6 +96,10 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
       inputRef.current?.focus();
     }
   }, [messages, conversationEnded]);
+
+  useEffect(() => {
+    conversationEndedRef.current = conversationEnded;
+  }, [conversationEnded]);
 
   useEffect(() => {
     if (suggestedMood !== null && selectedMood === null) {
@@ -113,6 +140,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     setSuggestedMood(null);
     setSelectedMood(null);
     setConversationEnded(false);
+    conversationEndedRef.current = false;
     setIsFinalizing(false);
     setIsCompleted(false);
     setIsGeneratingSummary(false);
@@ -172,9 +200,11 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                   content: fullContent.trim(),
                   timestamp: new Date().toISOString(),
                 };
-                setMessages([greeting]);
+                const updatedMessages = [greeting];
+                setMessages(updatedMessages);
                 setStreamingMessage("");
                 messageAdded = true;
+                void evaluateConversationState(updatedMessages);
               } else {
                 console.log("Skipping message add - content empty or already added");
                 console.log("fullContent.trim():", fullContent.trim());
@@ -209,9 +239,11 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
               content: fullContent.trim(),
               timestamp: new Date().toISOString(),
             };
-            setMessages([greeting]);
+            const updatedMessages = [greeting];
+            setMessages(updatedMessages);
             setStreamingMessage("");
             messageAdded = true;
+            void evaluateConversationState(updatedMessages);
           }
         } catch (e) {
           console.error("Error parsing remaining buffer:", e);
@@ -226,8 +258,10 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
           content: fullContent.trim(),
           timestamp: new Date().toISOString(),
         };
-        setMessages([greeting]);
+        const updatedMessages = [greeting];
+        setMessages(updatedMessages);
         setStreamingMessage("");
+        void evaluateConversationState(updatedMessages);
       } else if (!messageAdded) {
         console.log("WARNING: No message was added! fullContent:", fullContent);
       }
@@ -315,24 +349,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
               setMessages(updatedMessages);
               setStreamingMessage("");
 
-              // Count assistant messages (questions) - exclude the greeting
-              const assistantMessages = updatedMessages.filter((m) => m.role === "assistant");
-              const currentQuestionCount = assistantMessages.length - 1; // Subtract greeting
-
-              const trimmedContent = fullContent.trim();
-              const endsWithDelimiter = trimmedContent.endsWith("📝");
-              const reachedQuestionLimit = currentQuestionCount >= 5;
-
-              if (!conversationEnded && (endsWithDelimiter || reachedQuestionLimit)) {
-                setConversationEnded(true);
-                onConversationEnd?.();
-                setShowMoodSelector(true);
-                // Start both mood analysis and summary generation in parallel
-                void Promise.all([
-                  prepareMoodSuggestion(updatedMessages),
-                  generateEntryPreview(updatedMessages)
-                ]);
-              }
+              void evaluateConversationState(updatedMessages);
             }
           } catch (e) {
             // Skip invalid JSON

@@ -95,12 +95,14 @@ export function Navbar() {
                 </div>
               </>
             ) : (
-              <button
-                onClick={() => signIn("github")}
-                className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-md text-sm font-medium transition-colors"
-              >
-                Sign in with GitHub
-              </button>
+              pathname !== "/" && (
+                <button
+                  onClick={() => signIn("github")}
+                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-md text-sm font-medium transition-colors"
+                >
+                  Sign in with GitHub
+                </button>
+              )
             )}
           </div>
         </div>

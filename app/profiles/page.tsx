@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ChatbotProfile } from "@/types";
-import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
+import {
+  DEFAULT_CHATBOT_PROFILE,
+  DEFAULT_RESPONSE_COUNT,
+  RESPONSE_COUNT_MAX,
+  RESPONSE_COUNT_MIN,
+  clampResponseCount,
+} from "@/lib/constants";
 
 export default function ProfilesPage() {
   const { data: session, status } = useSession();
@@ -18,7 +24,10 @@ export default function ProfilesPage() {
     name: "",
     description: "",
     systemPrompt: "",
+    responseCountInput: DEFAULT_RESPONSE_COUNT.toString(),
   });
+  const [isSaving, setIsSaving] = useState(false);
+  const [settingCurrentId, setSettingCurrentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -48,11 +57,19 @@ export default function ProfilesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+    const parsedCount = Number.parseInt(formData.responseCountInput, 10);
+    const responseCount = clampResponseCount(
+      Number.isNaN(parsedCount) ? DEFAULT_RESPONSE_COUNT : parsedCount
+    );
+
     const profile: ChatbotProfile = {
       id: editingProfile?.id || `profile-${Date.now()}`,
       name: formData.name,
       description: formData.description,
       systemPrompt: formData.systemPrompt,
+      responseCount,
       isCurrent: editingProfile?.isCurrent ?? false,
       createdAt: editingProfile?.createdAt || new Date().toISOString(),
     };
@@ -72,11 +89,14 @@ export default function ProfilesPage() {
           name: "",
           description: "",
           systemPrompt: "",
+          responseCountInput: DEFAULT_RESPONSE_COUNT.toString(),
         });
       }
     } catch (error) {
       console.error("Error saving profile:", error);
       alert("Failed to save profile. Please try again.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -86,11 +106,13 @@ export default function ProfilesPage() {
       name: profile.name,
       description: profile.description,
       systemPrompt: profile.systemPrompt,
+      responseCountInput: (profile.responseCount ?? DEFAULT_RESPONSE_COUNT).toString(),
     });
     setShowCreateForm(true);
   };
 
   const handleSetCurrent = async (profile: ChatbotProfile) => {
+    setSettingCurrentId(profile.id);
     try {
       const response = await fetch("/api/chatbot-profiles/current", {
         method: "POST",
@@ -107,6 +129,8 @@ export default function ProfilesPage() {
     } catch (error) {
       console.error("Error setting current profile:", error);
       alert("Failed to set current profile. Please try again.");
+    } finally {
+      setSettingCurrentId(null);
     }
   };
 
@@ -153,6 +177,8 @@ export default function ProfilesPage() {
     return null;
   }
 
+  const isDefaultLocked = editingProfile?.id === "default";
+
   return (
     <div className="min-h-screen bg-github-dark">
       <Navbar />
@@ -173,6 +199,9 @@ export default function ProfilesPage() {
                 name: "",
                 description: "",
                 systemPrompt: DEFAULT_CHATBOT_PROFILE.systemPrompt,
+                responseCountInput: (
+                  DEFAULT_CHATBOT_PROFILE.responseCount ?? DEFAULT_RESPONSE_COUNT
+                ).toString(),
               });
             }}
             className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors"
@@ -183,9 +212,16 @@ export default function ProfilesPage() {
 
         {showCreateForm && (
           <div className="bg-github-dark border border-github-dark-border rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-semibold mb-4">
-              {editingProfile ? "Edit Profile" : "Create New Profile"}
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">
+                {editingProfile ? "Profile Details" : "Create New Profile"}
+              </h2>
+              {isDefaultLocked && (
+                <span className="text-xs text-gray-400 uppercase tracking-wide">
+                  Default profile is read-only
+                </span>
+              )}
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Name</label>
@@ -193,8 +229,9 @@ export default function ProfilesPage() {
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                  className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green disabled:opacity-60"
                   required
+                  disabled={isDefaultLocked}
                 />
               </div>
               <div>
@@ -203,8 +240,9 @@ export default function ProfilesPage() {
                   type="text"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                  className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green disabled:opacity-60"
                   required
+                  disabled={isDefaultLocked}
                 />
               </div>
               <div>
@@ -212,19 +250,55 @@ export default function ProfilesPage() {
                 <textarea
                   value={formData.systemPrompt}
                   onChange={(e) => setFormData({ ...formData, systemPrompt: e.target.value })}
-                  className="w-full h-48 bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green resize-none font-mono text-sm"
+                  className="w-full h-48 bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green resize-none font-mono text-sm disabled:opacity-60"
                   required
+                  disabled={isDefaultLocked}
                 />
                 <p className="text-xs text-gray-400 mt-1">
                   Define the chatbot&rsquo;s personality, goals, and behavior
                 </p>
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Responses per conversation</label>
+                <input
+                  type="number"
+                  min={RESPONSE_COUNT_MIN}
+                  max={RESPONSE_COUNT_MAX}
+                  value={formData.responseCountInput}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === "" || /^[0-9]*$/.test(value)) {
+                      setFormData({
+                        ...formData,
+                        responseCountInput: value,
+                      });
+                    }
+                  }}
+                  onBlur={() => {
+                    const parsedValue = Number.parseInt(formData.responseCountInput, 10);
+                    const clampedValue = clampResponseCount(
+                      Number.isNaN(parsedValue) ? DEFAULT_RESPONSE_COUNT : parsedValue
+                    );
+                    setFormData((prev) => ({
+                      ...prev,
+                      responseCountInput: clampedValue.toString(),
+                    }));
+                  }}
+                  className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green disabled:opacity-60"
+                  required
+                  disabled={isDefaultLocked}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Includes the AI&rsquo;s initial greeting and final wrap-up. Choose between {RESPONSE_COUNT_MIN} and {RESPONSE_COUNT_MAX} responses.
+                </p>
+              </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors"
+                  disabled={isSaving || isDefaultLocked}
+                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-wait"
                 >
-                  Save
+                  {isDefaultLocked ? "Read Only" : isSaving ? "Saving..." : "Save"}
                 </button>
                 <button
                   type="button"
@@ -264,14 +338,21 @@ export default function ProfilesPage() {
                       {(profile.systemPrompt ?? "").length > 200 && "..."}
                     </p>
                   </div>
+                  <p className="text-xs text-gray-500 mt-3">
+                    Responses per conversation:{" "}
+                    <span className="text-white font-semibold">
+                      {profile.responseCount ?? DEFAULT_RESPONSE_COUNT}
+                    </span>
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   {!profile.isCurrent && (
                     <button
                       onClick={() => handleSetCurrent(profile)}
-                      className="px-4 py-2 bg-github-green/20 hover:bg-github-green/30 text-github-green rounded-lg text-sm transition-colors border border-github-green/40"
+                      disabled={settingCurrentId === profile.id}
+                      className="px-4 py-2 bg-github-green/20 hover:bg-github-green/30 text-github-green rounded-lg text-sm transition-colors border border-github-green/40 disabled:opacity-60 disabled:cursor-wait"
                     >
-                      Set as current
+                      {settingCurrentId === profile.id ? "Setting..." : "Set as current"}
                     </button>
                   )}
                   <button

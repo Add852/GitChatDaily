@@ -36,16 +36,21 @@ export default function JournalPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (session && selectedDate) {
+    if (session) {
       fetchChatbotProfile();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.githubId]);
+
+  useEffect(() => {
+    if (session && selectedDate) {
       checkExistingEntry();
     }
-    // Only fetch once when session is available, not on every render
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.githubId, selectedDate]);
 
   const checkExistingEntry = async () => {
-    if (!session?.user?.githubId || !selectedDate || !chatbotProfile) return;
+    if (!session?.user?.githubId || !selectedDate) return;
     try {
       // First sync entries from GitHub
       await fetch("/api/journal/sync", { method: "POST" });
@@ -189,6 +194,7 @@ export default function JournalPage() {
                   value={selectedDate}
                   onChange={(e) => {
                     const newDate = e.target.value;
+                    setExistingEntry(null);
                     setSelectedDate(newDate);
                     router.push(`/journal?date=${newDate}`);
                   }}

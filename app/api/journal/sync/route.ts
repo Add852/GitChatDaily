@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { Octokit } from "@octokit/rest";
 import { saveJournalEntry } from "@/lib/storage";
-import { ConversationMessage, HighlightItem, JournalEntry } from "@/types";
+import { fetchJournalEntriesFromGitHub } from "@/lib/github-journal";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,89 +11,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const octokit = new Octokit({
-      auth: session.user.accessToken,
+    const entries = await fetchJournalEntriesFromGitHub(
+      session.user.accessToken,
+      session.user.githubId
+    );
+
+    entries.forEach((entry) => saveJournalEntry(session.user.githubId!, entry));
+
+    return NextResponse.json({
+      synced: entries.length,
+      message: `Synced ${entries.length} entries`,
     });
-
-    // Get user info
-    const { data: user } = await octokit.users.getAuthenticated();
-    const username = user.login;
-    const repoName = "gitchat-journal";
-
-    // Try to get the repository
-    try {
-      await octokit.repos.get({ owner: username, repo: repoName });
-    } catch (error: any) {
-      if (error.status === 404) {
-        // Repository doesn't exist, nothing to sync
-        return NextResponse.json({ synced: 0, message: "Repository not found" });
-      }
-      throw error;
-    }
-
-    // Get all entries from the entries directory
-    let syncedCount = 0;
-    try {
-      const { data: contents } = await octokit.repos.getContent({
-        owner: username,
-        repo: repoName,
-        path: "entries",
-      });
-
-      if (Array.isArray(contents)) {
-        // Get all markdown files
-        const entryFiles = contents.filter(
-          (item) => item.type === "file" && item.name.endsWith(".md")
-        );
-
-        for (const file of entryFiles) {
-          try {
-            const { data: fileData } = await octokit.repos.getContent({
-              owner: username,
-              repo: repoName,
-              path: file.path,
-            });
-
-            if ("content" in fileData) {
-              const content = Buffer.from(fileData.content, "base64").toString("utf-8");
-              const parsed =
-                parseStructuredEntry(content) ??
-                parseLegacyEntry(content, file.name.replace(".md", ""));
-
-              if (!parsed) {
-                continue;
-              }
-
-              const entry: JournalEntry = {
-                id: `${session.user.githubId}-${parsed.date}`,
-                date: parsed.date,
-                highlights: parsed.highlights,
-                summary: parsed.summary,
-                conversation: parsed.conversation,
-                mood: parsed.mood,
-                chatbotProfileId: "default",
-                chatbotProfileName: parsed.chatbotProfileName,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              };
-
-              saveJournalEntry(session.user.githubId, entry);
-              syncedCount++;
-            }
-          } catch (error) {
-            console.error(`Error syncing file ${file.name}:`, error);
-            // Continue with other files
-          }
-        }
-      }
-    } catch (error: any) {
-      if (error.status !== 404) {
-        // 404 means entries directory doesn't exist yet, which is fine
-        console.error("Error syncing entries:", error);
-      }
-    }
-
-    return NextResponse.json({ synced: syncedCount, message: `Synced ${syncedCount} entries` });
   } catch (error) {
     console.error("Sync error:", error);
     return NextResponse.json(
@@ -102,131 +29,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-interface ParsedJournalFile {
-  date: string;
-  mood: number;
-  summary: string;
-  highlights: HighlightItem[];
-  conversation: ConversationMessage[];
-  chatbotProfileName: string;
-}
-
-function normalizeNewlines(text: string): string {
-  return text.replace(/\r\n/g, "\n");
-}
-
-function parseStructuredEntry(content: string): ParsedJournalFile | null {
-  const normalized = normalizeNewlines(content);
-  const frontMatterMatch = normalized.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-
-  if (!frontMatterMatch) {
-    return null;
-  }
-
-  const metadataRaw = frontMatterMatch[1]
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const metadata: Record<string, string> = {};
-  for (const line of metadataRaw) {
-    const [key, ...rest] = line.split(":");
-    if (!key) continue;
-    metadata[key.trim()] = rest.join(":").trim();
-  }
-
-  const date = metadata.date;
-  if (!date) {
-    return null;
-  }
-
-  const body = normalized.slice(frontMatterMatch[0].length);
-  const highlightsMatch = body.match(/### Highlights\s+([\s\S]*?)\n### Summary/);
-  const summaryMatch = body.match(/### Summary\s+([\s\S]*?)\n---/);
-  const conversationMatch = body.match(/### Conversation\s+([\s\S]*?)\n---/);
-
-  return {
-    date,
-    mood: parseInt(metadata.mood || "3", 10) || 3,
-    summary: summaryMatch?.[1]?.trim() || "",
-    highlights: parseHighlightsSection(highlightsMatch?.[1] ?? ""),
-    conversation: parseConversationSection(conversationMatch?.[1] ?? ""),
-    chatbotProfileName: metadata.chatbot || "GitChat Companion",
-  };
-}
-
-function parseLegacyEntry(content: string, fallbackDate: string): ParsedJournalFile | null {
-  const normalized = normalizeNewlines(content);
-  const lines = normalized.split("\n");
-  const headerMatch = lines[0]?.match(/# Journal Entry - (\d{4}-\d{2}-\d{2})/);
-  const date = headerMatch?.[1] || fallbackDate;
-
-  if (!date) {
-    return null;
-  }
-
-  const moodMatch = normalized.match(/\*Mood: (\d)\/5\*/);
-  const mood = moodMatch ? parseInt(moodMatch[1], 10) : 3;
-  const separatorIndex = normalized.indexOf("---");
-  const summary =
-    separatorIndex > 0
-      ? normalized.substring(lines[0].length, separatorIndex).trim()
-      : normalized.substring(lines[0].length).trim();
-
-  return {
-    date,
-    mood,
-    summary,
-    highlights: [],
-    conversation: [],
-    chatbotProfileName: "GitChat Companion",
-  };
-}
-
-function parseHighlightsSection(section: string): HighlightItem[] {
-  if (!section) {
-    return [];
-  }
-
-  const highlights: HighlightItem[] = [];
-  const regex = /^- \*\*(.+?):\*\*\s*(.+)$/gm;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(section)) !== null) {
-    const title = match[1]?.trim();
-    const description = match[2]?.trim();
-
-    if (title && description) {
-      highlights.push({ title, description });
-    }
-  }
-
-  return highlights;
-}
-
-function parseConversationSection(section: string): ConversationMessage[] {
-  if (!section) {
-    return [];
-  }
-
-  const messages: ConversationMessage[] = [];
-  const regex = /\*\*(You|AI):\*\*\s*([\s\S]*?)(?=\n\n\*\*(You|AI):\*\*|$)/g;
-  let match: RegExpExecArray | null;
-  const timestampBase = Date.now();
-
-  while ((match = regex.exec(section)) !== null) {
-    const speaker = match[1];
-    const content = match[2]?.trim();
-    if (!speaker || !content) continue;
-
-    messages.push({
-      role: speaker === "You" ? "user" : "assistant",
-      content,
-      timestamp: new Date(timestampBase + messages.length).toISOString(),
-    });
-  }
-
-  return messages;
 }

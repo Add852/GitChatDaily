@@ -10,7 +10,7 @@ import {
   deleteChatbotProfile,
 } from "@/lib/storage";
 import { ChatbotProfile } from "@/types";
-import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
+import { DEFAULT_CHATBOT_PROFILE, clampResponseCount } from "@/lib/constants";
 import {
   getProfilesFromGitHub,
   getProfileFromGitHub,
@@ -18,6 +18,11 @@ import {
   getCurrentProfileIdFromGitHub,
   saveCurrentProfileIdToGitHub,
 } from "@/app/api/github/profile-helpers";
+
+const sanitizeProfile = (profile: ChatbotProfile): ChatbotProfile => ({
+  ...profile,
+  responseCount: clampResponseCount(profile.responseCount),
+});
 
 export async function GET(req: NextRequest) {
   try {
@@ -49,9 +54,10 @@ export async function GET(req: NextRequest) {
         try {
           const profile = await getProfileFromGitHub(session.user.accessToken, profileId);
           if (profile) {
+            const normalizedProfile = sanitizeProfile(profile);
             return NextResponse.json({
-              ...profile,
-              isCurrent: profile.id === currentProfileId,
+              ...normalizedProfile,
+              isCurrent: normalizedProfile.id === currentProfileId,
             });
           }
         } catch (e) {
@@ -63,9 +69,10 @@ export async function GET(req: NextRequest) {
       if (!profile) {
         return NextResponse.json({ error: "Profile not found" }, { status: 404 });
       }
+      const normalizedProfile = sanitizeProfile(profile);
       return NextResponse.json({
-        ...profile,
-        isCurrent: profile.id === currentProfileId,
+        ...normalizedProfile,
+        isCurrent: normalizedProfile.id === currentProfileId,
       });
     }
 
@@ -76,8 +83,10 @@ export async function GET(req: NextRequest) {
         if (Array.isArray(githubProfiles) && githubProfiles.length > 0) {
           // Merge with default profile (default always included)
           const mergedProfiles = [
-            DEFAULT_CHATBOT_PROFILE,
-            ...githubProfiles.filter((p: ChatbotProfile) => p.id !== "default"),
+            sanitizeProfile(DEFAULT_CHATBOT_PROFILE),
+            ...githubProfiles
+              .filter((p: ChatbotProfile) => p.id !== "default")
+              .map(sanitizeProfile),
           ];
           if (!mergedProfiles.some((profile) => profile.id === currentProfileId)) {
             currentProfileId = "default";
@@ -106,7 +115,8 @@ export async function GET(req: NextRequest) {
     const profiles = getAllChatbotProfiles(userId);
     const allProfiles = profiles.find((p) => p.id === "default")
       ? profiles
-      : [DEFAULT_CHATBOT_PROFILE, ...profiles];
+      : [DEFAULT_CHATBOT_PROFILE, ...profiles].map(sanitizeProfile);
+    const normalizedProfiles = allProfiles.map(sanitizeProfile);
 
     if (!allProfiles.some((profile) => profile.id === currentProfileId)) {
       currentProfileId = "default";
@@ -114,7 +124,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(
-      allProfiles.map((profile) => ({
+      normalizedProfiles.map((profile) => ({
         ...profile,
         isCurrent: profile.id === currentProfileId,
       }))
@@ -136,15 +146,16 @@ export async function POST(req: NextRequest) {
     }
 
     const profile: ChatbotProfile = await req.json();
+    const sanitizedProfile = sanitizeProfile(profile);
 
     // Save to local storage
-    saveChatbotProfile(session.user.githubId, profile);
+    saveChatbotProfile(session.user.githubId, sanitizedProfile);
 
-    if (profile.isCurrent) {
-      setCurrentChatbotProfileId(session.user.githubId, profile.id);
+    if (sanitizedProfile.isCurrent) {
+      setCurrentChatbotProfileId(session.user.githubId, sanitizedProfile.id);
       if (session.user.accessToken) {
         try {
-          await saveCurrentProfileIdToGitHub(session.user.accessToken, profile.id);
+          await saveCurrentProfileIdToGitHub(session.user.accessToken, sanitizedProfile.id);
         } catch (error) {
           console.error("Error saving current profile to GitHub:", error);
         }
@@ -152,15 +163,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Save to GitHub (don't save default profile)
-    if (profile.id !== "default" && session.user.accessToken) {
+    if (sanitizedProfile.id !== "default" && session.user.accessToken) {
       try {
-        await saveProfileToGitHub(session.user.accessToken, profile);
+        await saveProfileToGitHub(session.user.accessToken, sanitizedProfile);
       } catch (e) {
         console.error("Error saving to GitHub:", e);
       }
     }
 
-    return NextResponse.json({ success: true, profile });
+    return NextResponse.json({ success: true, profile: sanitizedProfile });
   } catch (error) {
     console.error("Chatbot profiles API error:", error);
     return NextResponse.json(

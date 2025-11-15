@@ -1,5 +1,5 @@
 import { JournalEntry, ChatbotProfile } from "@/types";
-import { DEFAULT_CHATBOT_PROFILE } from "./constants";
+import { DEFAULT_CHATBOT_PROFILE, clampResponseCount } from "./constants";
 
 // In-memory storage for development
 // In production, this should be replaced with a database
@@ -7,11 +7,19 @@ let journalEntries: Map<string, JournalEntry> = new Map();
 let chatbotProfiles: Map<string, ChatbotProfile> = new Map();
 let userCurrentProfiles: Map<string, string> = new Map();
 
-// Initialize default chatbot profile
-chatbotProfiles.set("default", {
-  ...DEFAULT_CHATBOT_PROFILE,
-  createdAt: new Date().toISOString(),
+const normalizeProfile = (profile: ChatbotProfile): ChatbotProfile => ({
+  ...profile,
+  responseCount: clampResponseCount(profile.responseCount),
 });
+
+// Initialize default chatbot profile
+chatbotProfiles.set(
+  "default",
+  normalizeProfile({
+    ...DEFAULT_CHATBOT_PROFILE,
+    createdAt: new Date().toISOString(),
+  })
+);
 
 export function getJournalEntry(userId: string, date: string): JournalEntry | null {
   const key = `${userId}-${date}`;
@@ -45,16 +53,17 @@ export function getJournalEntriesByYear(userId: string, year: number): Map<strin
 }
 
 export function getChatbotProfile(profileId: string): ChatbotProfile | null {
-  return chatbotProfiles.get(profileId) || null;
+  const profile = chatbotProfiles.get(profileId);
+  return profile ? normalizeProfile(profile) : null;
 }
 
 export function getAllChatbotProfiles(userId: string): ChatbotProfile[] {
   // For now, return all profiles. In production, filter by userId
-  return Array.from(chatbotProfiles.values());
+  return Array.from(chatbotProfiles.values()).map(normalizeProfile);
 }
 
 export function saveChatbotProfile(userId: string, profile: ChatbotProfile): void {
-  chatbotProfiles.set(profile.id, profile);
+  chatbotProfiles.set(profile.id, normalizeProfile(profile));
 }
 
 export function deleteJournalEntry(userId: string, date: string): void {

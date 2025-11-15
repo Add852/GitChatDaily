@@ -27,6 +27,7 @@ export interface ChatbotProfile {
   name: string;
   description: string;
   systemPrompt: string;
+  responseCount?: number;
   isCurrent?: boolean;
   createdAt: string;
 }

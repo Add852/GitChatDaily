@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { HighlightItem } from "@/types";
+import { HighlightItem, ConversationMessage } from "@/types";
 
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || "http://localhost:11434";
+const MIN_HIGHLIGHTS = 1;
+const MAX_HIGHLIGHTS = 5;
 
 interface SummaryResponse {
   highlights: HighlightItem[];
   summary: string;
 }
 
-const SYSTEM_PROMPT = `You are a journaling assistant that extracts daily highlights and writes a concise narrative summary.
+const SYSTEM_PROMPT = `You are a journaling assistant that extracts daily highlights and writes a concise narrative summary in the user's own voice.
 
 Return ONLY valid JSON that matches this TypeScript type:
 {
@@ -19,10 +21,12 @@ Return ONLY valid JSON that matches this TypeScript type:
 }
 
 Rules:
-- Provide 2-4 highlights.
+- Provide 1-5 highlights (depending on how much is necessary to cover everything that happened today)
+- Every highlight must come strictly from USER lines in the transcript. Only use the information that appears in ASSISTANT lines as a reference to the user's response.
 - Titles must be short (max 5 words) and Title Case.
-- Descriptions are 1 sentence, first person ("I"), and include concrete details from the conversation.
-- Summary is 2-3 sentences, warm, second person, and mentions emotions plus outcomes.
+- Descriptions are 1 sentence, first person ("I"), and quote/paraphrase only what the user explicitly stated.
+- If the assistant suggested something the user didn't confirm, leave it out.
+- Summary is 1-3 sentences, first person ("I"), and should reference just the user's own words or feelings without inventing new details.
 - Do not include markdown or additional prose outside the JSON payload.`;
 
 export async function POST(req: NextRequest) {
@@ -40,8 +44,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const conversationText = conversation
-      .map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`)
+    const conversationMessages = conversation as ConversationMessage[];
+
+    const conversationText = conversationMessages
+      .map((msg) => {
+        const speaker = msg.role === "user" ? "USER" : "ASSISTANT";
+        return `${speaker}: ${msg.content}`;
+      })
       .join("\n\n");
 
     const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
@@ -77,8 +86,11 @@ export async function POST(req: NextRequest) {
       throw new Error("Invalid summary format");
     }
 
+    const normalizedHighlights = normalizeHighlights(parsedPayload.highlights);
+    const boundedHighlights = enforceHighlightBounds(normalizedHighlights, conversationMessages);
+
     const summaryResponse: SummaryResponse = {
-      highlights: normalizeHighlights(parsedPayload.highlights),
+      highlights: boundedHighlights,
       summary: typeof parsedPayload.summary === "string"
         ? parsedPayload.summary.trim()
         : "",
@@ -133,6 +145,41 @@ function normalizeHighlights(input: any): HighlightItem[] {
 
       return { title, description };
     })
-    .filter((item): item is HighlightItem => Boolean(item));
+    .filter((item): item is HighlightItem => Boolean(item))
+    .slice(0, MAX_HIGHLIGHTS);
+}
+
+function enforceHighlightBounds(
+  highlights: HighlightItem[],
+  conversation: ConversationMessage[]
+): HighlightItem[] {
+  const limited = highlights.slice(0, MAX_HIGHLIGHTS);
+  if (limited.length >= MIN_HIGHLIGHTS) {
+    return limited;
+  }
+
+  const userMessages = Array.isArray(conversation)
+    ? conversation
+        .filter((msg) => msg?.role === "user" && typeof msg.content === "string")
+        .map((msg) => msg.content.trim())
+        .filter(Boolean)
+    : [];
+
+  const usedDescriptions = new Set(limited.map((item) => item.description));
+  let fallbackIndex = 0;
+
+  while (limited.length < MIN_HIGHLIGHTS && fallbackIndex < userMessages.length) {
+    const content = userMessages[fallbackIndex++];
+    if (usedDescriptions.has(content)) continue;
+
+    const description = content.length > 240 ? `${content.slice(0, 237)}...` : content;
+    limited.push({
+      title: `Reflection ${limited.length + 1}`,
+      description,
+    });
+    usedDescriptions.add(content);
+  }
+
+  return limited.slice(0, MAX_HIGHLIGHTS);
 }
 

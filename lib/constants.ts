@@ -1,5 +1,18 @@
 import { MoodOption } from "@/types";
 
+export const RESPONSE_COUNT_MIN = 2;
+export const RESPONSE_COUNT_MAX = 10;
+export const DEFAULT_RESPONSE_COUNT = 4;
+
+export function clampResponseCount(value?: number): number {
+  const numericValue =
+    typeof value === "number" && !Number.isNaN(value) ? Math.round(value) : DEFAULT_RESPONSE_COUNT;
+  return Math.min(
+    RESPONSE_COUNT_MAX,
+    Math.max(RESPONSE_COUNT_MIN, numericValue ?? DEFAULT_RESPONSE_COUNT)
+  );
+}
+
 export const MOOD_OPTIONS: MoodOption[] = [
   { value: 1, emoji: "😢", label: "Very Sad", color: "#6b7280" },
   { value: 2, emoji: "😕", label: "Sad", color: "#86efac" },
@@ -10,9 +23,15 @@ export const MOOD_OPTIONS: MoodOption[] = [
 
 export const DEFAULT_CHATBOT_PROFILE = {
   id: "default",
-  name: "Empathetic Friend",
-  description: "A caring and understanding friend who listens and provides support",
-  systemPrompt: `A caring and understanding friend who listens and provides support`,
+  name: "Journal Buddy",
+  description: "Helps generate automated journal entries for you",
+  systemPrompt: `You are a chatbot designed to help users document their day to gather three key pieces of information:
+- Today's highlight or standout moment/s
+- A problem/s they dealt with today
+- Something/s they're grateful for
+
+You may ask follow-up questions when helpful, but stay focused on collecting just enough detail to craft a concise journal entry.`,
+  responseCount: DEFAULT_RESPONSE_COUNT,
   isCurrent: true,
   createdAt: new Date().toISOString(),
 };

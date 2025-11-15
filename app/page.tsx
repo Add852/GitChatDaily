@@ -1,12 +1,30 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 
+const sellingPoints = [
+  {
+    icon: "💬",
+    title: "Conversational journaling",
+    description: "Answer a handful of focused prompts—the AI turns your chat into narrative gold.",
+  },
+  {
+    icon: "🌙",
+    title: "Nightly wind-down ritual",
+    description: "Talk to the bot before bed, unblock thoughts, and head into tomorrow lighter.",
+  },
+  {
+    icon: "📡",
+    title: "Signal your progress",
+    description: "Every entry becomes a private GitHub commit that keeps your graph pulsing.",
+  },
+];
+
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
 
   useEffect(() => {
@@ -18,47 +36,86 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-github-dark">
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 py-16">
-        <div className="text-center">
-          <div className="flex justify-center mb-8">
-            <svg
-              className="w-24 h-24"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                fillRule="evenodd"
-                d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"
-                clipRule="evenodd"
-              />
-            </svg>
+      <main className="max-w-6xl mx-auto px-4 py-16">
+        <div className="grid lg:grid-cols-2 gap-12 items-center">
+          <div className="space-y-6">
+            <span className="inline-flex items-center gap-2 text-xs uppercase tracking-widest text-github-green font-semibold bg-github-green/10 px-3 py-1 rounded-full">
+              Developer wellness platform
+            </span>
+            <h1 className="text-4xl sm:text-5xl font-bold leading-tight">
+              Code your day. <span className="text-github-green">Commit your feelings.</span>
+            </h1>
+            <p className="text-lg text-gray-300">
+              GitChat Journal pairs a personalized AI conversation with automated Markdown commits so
+              you can reflect nightly, capture real emotions, and keep your GitHub graph glowing—
+              without sacrificing mental health.
+            </p>
+            {status === "loading" ? (
+              <div className="text-gray-400">Loading...</div>
+            ) : (
+              <div className="flex flex-wrap gap-4">
+                <button
+                  onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
+                  className="px-8 py-4 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-lg font-semibold transition-colors"
+                >
+                  Sign in with GitHub
+                </button>
+              </div>
+            )}
+            <p className="text-sm text-gray-500">
+              Be productive while protecting your headspace. No more empty journal streaks.
+            </p>
           </div>
-          <h1 className="text-5xl font-bold mb-4">GitChat Journal</h1>
-          <p className="text-xl text-gray-400 mb-8">
-            Your daily conversational chatbot journaling system
-          </p>
-          <p className="text-gray-500 mb-12 max-w-2xl mx-auto">
-            Connect with an AI companion to reflect on your day, track your mood, and
-            automatically sync your journal entries to GitHub. Built for the OpenAI Global
-            Accelerator 2025 Hackathon.
-          </p>
-          {status === "loading" ? (
-            <div className="text-gray-400">Loading...</div>
-          ) : (
-            <div className="space-y-4">
-              <a
-                href="/api/auth/signin/github"
-                className="inline-block px-8 py-4 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-lg font-semibold transition-colors"
-              >
-                Sign in with GitHub
-              </a>
-              <p className="text-sm text-gray-500">
-                Sign in to start journaling and sync your entries to GitHub
-              </p>
-            </div>
-          )}
+
+          <div className="bg-github-dark-hover border border-github-dark-border rounded-2xl p-8 shadow-2xl shadow-github-green/5">
+            <h2 className="text-2xl font-semibold mb-4">What happens when you log a day?</h2>
+            <ul className="space-y-4 text-gray-300">
+              <li className="flex items-start gap-3">
+                <span className="text-2xl">🤖</span>
+                <div>
+                  <p className="font-semibold text-white">Conversational journaling</p>
+                  <p className="text-sm">
+                    A focused chatbot gathers highlights, blockers, and gratitude in under five
+                    responses.
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="text-2xl">📝</span>
+                <div>
+                  <p className="font-semibold text-white">Auto-generated entry</p>
+                  <p className="text-sm">
+                    Mood, summary, and highlights are compiled instantly—ready for reflection.
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="text-2xl">📈</span>
+                <div>
+                  <p className="font-semibold text-white">GitHub commit</p>
+                  <p className="text-sm">
+                    Every entry becomes a private repo commit—proof of consistency on your graph.
+                  </p>
+                </div>
+              </li>
+            </ul>
+          </div>
         </div>
+
+        <section id="benefits" className="mt-16">
+          <div className="grid md:grid-cols-3 gap-6">
+            {sellingPoints.map((point) => (
+              <div
+                key={point.title}
+                className="bg-github-dark-hover border border-github-dark-border rounded-xl p-6 space-y-2"
+              >
+                <div className="text-3xl">{point.icon}</div>
+                <h3 className="text-xl font-semibold">{point.title}</h3>
+                <p className="text-sm text-gray-400">{point.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
       </main>
     </div>
   );

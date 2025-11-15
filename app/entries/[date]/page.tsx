@@ -4,11 +4,10 @@ import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
-import { JournalEntry } from "@/types";
+import { JournalEntry, HighlightItem } from "@/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MOOD_OPTIONS } from "@/lib/constants";
-import { formatDate } from "@/lib/utils";
 
 export default function EntryDetailPage() {
   const { data: session, status } = useSession();
@@ -19,6 +18,8 @@ export default function EntryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editedSummary, setEditedSummary] = useState("");
+  const [editedHighlights, setEditedHighlights] = useState<HighlightItem[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -39,6 +40,16 @@ export default function EntryDetailPage() {
         const data = await response.json();
         setEntry(data);
         setEditedSummary(data.summary);
+        setEditedHighlights(
+          (data.highlights && data.highlights.length > 0
+            ? data.highlights
+            : [
+                {
+                  title: "Highlight 1",
+                  description: "",
+                },
+              ]) as HighlightItem[]
+        );
       } else if (response.status === 404) {
         // Entry doesn't exist, redirect to create new entry
         router.push("/journal");
@@ -53,8 +64,26 @@ export default function EntryDetailPage() {
   const handleSave = async () => {
     if (!entry) return;
 
+    const sanitizedHighlights = editedHighlights
+      .map((item) => ({
+        title: item.title?.trim() || "Highlight",
+        description: item.description?.trim() || "",
+      }))
+      .filter((item) => item.description.length > 0);
+
+    const fallbackHighlights =
+      sanitizedHighlights.length > 0
+        ? sanitizedHighlights
+        : [
+            {
+              title: "Daily Reflection",
+              description: "Highlights unavailable. Please update later.",
+            },
+          ];
+
     const updatedEntry = {
       ...entry,
+      highlights: fallbackHighlights,
       summary: editedSummary,
       updatedAt: new Date().toISOString(),
     };
@@ -83,6 +112,8 @@ export default function EntryDetailPage() {
             chatbotProfileName: entry.chatbotProfileName,
           }),
         });
+        setEntry(updatedEntry);
+        setIsEditing(false);
       }
     } catch (error) {
       console.error("Error saving entry:", error);
@@ -92,6 +123,48 @@ export default function EntryDetailPage() {
 
   const handleRedo = () => {
     router.push(`/journal?date=${date}`);
+  };
+
+  const handleHighlightChange = (index: number, field: "title" | "description", value: string) => {
+    setEditedHighlights((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddHighlight = () => {
+    setEditedHighlights((prev) => [
+      ...prev,
+      { title: `Highlight ${prev.length + 1}`, description: "" },
+    ]);
+  };
+
+  const handleRemoveHighlight = (index: number) => {
+    setEditedHighlights((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleDelete = async () => {
+    if (!entry || isDeleting) return;
+    const confirmed = confirm(
+      `Delete the journal entry for ${entry.date}? This cannot be undone.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/journal?date=${entry.date}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to delete entry");
+      }
+      router.push("/entries");
+    } catch (error) {
+      console.error("Error deleting entry:", error);
+      alert("Failed to delete entry. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   if (status === "loading" || loading) {
@@ -115,6 +188,14 @@ export default function EntryDetailPage() {
     <div className="min-h-screen bg-github-dark">
       <Navbar />
       <main className="max-w-4xl mx-auto px-4 py-8">
+        <div className="mb-4">
+          <button
+            onClick={() => router.push("/entries")}
+            className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            <span className="text-lg">←</span> Back to entries
+          </button>
+        </div>
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold mb-2">Journal Entry</h1>
@@ -146,6 +227,13 @@ export default function EntryDetailPage() {
                     </a>
                   )}
                   <button
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors border border-red-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isDeleting ? "Deleting..." : "Delete Entry"}
+                  </button>
+                  <button
                     onClick={() => setIsEditing(true)}
                     className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border"
                   >
@@ -166,11 +254,55 @@ export default function EntryDetailPage() {
               <h3 className="text-lg font-semibold">Highlights</h3>
               {isEditing && (
                 <span className="text-xs text-gray-500">
-                  Highlights are read-only for now.
+                  Edit highlights to better reflect your own words.
                 </span>
               )}
             </div>
-            {entry.highlights && entry.highlights.length > 0 ? (
+            {isEditing ? (
+              <div className="space-y-4">
+                {editedHighlights.map((highlight, index) => (
+                  <div
+                    key={`highlight-${index}`}
+                    className="bg-github-dark-hover border border-github-dark-border rounded-lg p-4 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-gray-300">Highlight {index + 1}</h4>
+                      {editedHighlights.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveHighlight(index)}
+                          className="text-xs text-red-400 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={highlight.title}
+                      onChange={(e) => handleHighlightChange(index, "title", e.target.value)}
+                      className="w-full bg-github-dark border border-github-dark-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-github-green"
+                      placeholder="Title"
+                    />
+                    <textarea
+                      value={highlight.description}
+                      onChange={(e) => handleHighlightChange(index, "description", e.target.value)}
+                      className="w-full bg-github-dark border border-github-dark-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-github-green resize-none h-20"
+                      placeholder="Description"
+                    />
+                  </div>
+                ))}
+                {editedHighlights.length < 5 && (
+                  <button
+                    type="button"
+                    onClick={handleAddHighlight}
+                    className="px-4 py-2 border border-dashed border-github-dark-border text-sm text-gray-300 rounded-lg hover:border-github-green hover:text-white transition-colors"
+                  >
+                    + Add highlight
+                  </button>
+                )}
+              </div>
+            ) : entry.highlights && entry.highlights.length > 0 ? (
               <ul className="list-disc space-y-2 pl-5 text-gray-200 text-sm">
                 {entry.highlights.map((highlight, index) => (
                   <li key={`${highlight.title}-${index}`}>
@@ -201,6 +333,7 @@ export default function EntryDetailPage() {
                   onClick={() => {
                     setIsEditing(false);
                     setEditedSummary(entry.summary);
+                    setEditedHighlights(entry.highlights);
                   }}
                   className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border"
                 >
