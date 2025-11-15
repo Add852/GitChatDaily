@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import {
   getJournalEntry,
   saveJournalEntry,
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       let entry = getJournalEntry(userId, date);
       if (!entry && accessToken) {
         const remoteEntries = await hydrateEntries();
-        entry = remoteEntries.find((item) => item.date === date);
+        entry = remoteEntries.find((item) => item.date === date) ?? null;
       }
       if (!entry) {
         return NextResponse.json({ error: "Entry not found" }, { status: 404 });

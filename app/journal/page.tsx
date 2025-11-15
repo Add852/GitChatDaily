@@ -2,14 +2,14 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ChatbotInterface } from "@/components/ChatbotInterface";
 import { ChatbotProfile, ConversationMessage, HighlightItem, JournalEntry } from "@/types";
 import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 
-export default function JournalPage() {
+function JournalPageContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -209,6 +209,25 @@ export default function JournalPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+function JournalPageFallback() {
+  return (
+    <div className="min-h-screen bg-github-dark">
+      <Navbar />
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    </div>
+  );
+}
+
+export default function JournalPage() {
+  return (
+    <Suspense fallback={<JournalPageFallback />}>
+      <JournalPageContent />
+    </Suspense>
   );
 }
 
