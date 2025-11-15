@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GitChat Journal Icon">
+  <rect width="512" height="512" rx="96" fill="#0d1117" />
+  <rect x="72" y="120" width="368" height="272" rx="36" fill="#161b22" stroke="#238636" stroke-width="16" />
+  <path
+    d="M136 196h240M136 256h240M136 316h160"
+    stroke="#34d399"
+    stroke-width="24"
+    stroke-linecap="round"
+  />
+  <circle cx="360" cy="316" r="28" fill="#238636" />
+  <path
+    d="M180 80c-26 0-48 22-48 48v24h32v-24c0-9 7-16 16-16h152c9 0 16 7 16 16v24h32v-24c0-26-22-48-48-48H180z"
+    fill="#238636"
+  />
+</svg>
+

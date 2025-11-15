@@ -6,6 +6,12 @@ import { Footer } from "@/components/Footer";
 export const metadata: Metadata = {
   title: "GitChat Journal - Your Daily GitHub Journal",
   description: "A GitHub-themed daily conversational chatbot journaling system",
+  themeColor: "#0d1117",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icons/app-icon.png",
+    apple: "/icons/app-icon.png",
+  },
 };
 
 export default function RootLayout({
