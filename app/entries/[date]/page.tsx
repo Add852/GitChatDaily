@@ -77,7 +77,10 @@ export default function EntryDetailPage() {
           body: JSON.stringify({
             date: entry.date,
             summary: editedSummary,
+            highlights: entry.highlights,
             mood: entry.mood,
+            conversation: entry.conversation,
+            chatbotProfileName: entry.chatbotProfileName,
           }),
         });
       }
@@ -157,6 +160,28 @@ export default function EntryDetailPage() {
                 </>
               )}
             </div>
+          </div>
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold">Highlights</h3>
+              {isEditing && (
+                <span className="text-xs text-gray-500">
+                  Highlights are read-only for now.
+                </span>
+              )}
+            </div>
+            {entry.highlights && entry.highlights.length > 0 ? (
+              <ul className="list-disc space-y-2 pl-5 text-gray-200 text-sm">
+                {entry.highlights.map((highlight, index) => (
+                  <li key={`${highlight.title}-${index}`}>
+                    <span className="font-semibold">{highlight.title}:</span>{" "}
+                    <span className="text-gray-300">{highlight.description}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400">No highlights recorded for this entry.</p>
+            )}
           </div>
           {isEditing ? (
             <div>

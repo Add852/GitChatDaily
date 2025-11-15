@@ -2,14 +2,19 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { ConversationMessage, ChatbotProfile } from "@/types";
+import { ConversationMessage, ChatbotProfile, HighlightItem } from "@/types";
 import { MOOD_OPTIONS } from "@/lib/constants";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 interface ChatbotInterfaceProps {
   chatbotProfile: ChatbotProfile;
-  onComplete: (conversation: ConversationMessage[], summary: string, mood: number) => void;
+  onComplete: (
+    conversation: ConversationMessage[],
+    summary: string,
+    highlights: HighlightItem[],
+    mood: number
+  ) => void;
   initialConversation?: ConversationMessage[];
   onConversationStart?: () => void;
   onConversationEnd?: () => void;
@@ -33,7 +38,7 @@ export function ChatbotInterface({
   const [streamingMessage, setStreamingMessage] = useState<string>("");
   const [showMoodSelector, setShowMoodSelector] = useState(false);
   const [summary, setSummary] = useState("");
-  const [streamingSummary, setStreamingSummary] = useState("");
+  const [highlights, setHighlights] = useState<HighlightItem[]>([]);
   const [suggestedMood, setSuggestedMood] = useState<number | null>(null);
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
   const [conversationEnded, setConversationEnded] = useState(false);
@@ -104,7 +109,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     setStreamingMessage("");
     setShowMoodSelector(false);
     setSummary("");
-    setStreamingSummary("");
+    setHighlights([]);
     setSuggestedMood(null);
     setSelectedMood(null);
     setConversationEnded(false);
@@ -325,7 +330,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                 // Start both mood analysis and summary generation in parallel
                 void Promise.all([
                   prepareMoodSuggestion(updatedMessages),
-                  generateSummary(updatedMessages)
+                  generateEntryPreview(updatedMessages)
                 ]);
               }
             }
@@ -365,82 +370,41 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     }
   };
 
-  const generateSummary = async (conversation: ConversationMessage[]) => {
+  const generateEntryPreview = async (
+    conversation: ConversationMessage[]
+  ): Promise<{ summary: string; highlights: HighlightItem[] }> => {
     setIsGeneratingSummary(true);
-    setStreamingSummary("");
     try {
-      // Check if summarize endpoint supports streaming
       const summaryResponse = await fetch("/api/journal/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversation }),
       });
 
-      if (!summaryResponse.body) {
-        throw new Error("No response body");
+      if (!summaryResponse.ok) {
+        throw new Error("Failed to generate summary");
       }
 
-      // Try to stream the summary if possible
-      const reader = summaryResponse.body.getReader();
-      const decoder = new TextDecoder();
-      let fullSummary = "";
-      let buffer = "";
+      const data = await summaryResponse.json();
+      const parsedHighlights: HighlightItem[] = Array.isArray(data.highlights)
+        ? data.highlights.filter(
+            (item: HighlightItem) =>
+              typeof item?.title === "string" &&
+              typeof item?.description === "string" &&
+              item.description.trim().length > 0
+          )
+        : [];
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const parsedSummary =
+        typeof data.summary === "string" ? data.summary.trim() : "";
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+      setHighlights(parsedHighlights);
+      setSummary(parsedSummary);
 
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          
-          // Try streaming format first
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.content !== undefined) {
-                fullSummary += data.content;
-                setStreamingSummary(fullSummary);
-              }
-              if (data.done && fullSummary) {
-                setSummary(fullSummary);
-                setStreamingSummary("");
-                return fullSummary;
-              }
-            } catch (e) {
-              // Skip invalid JSON
-            }
-          } else {
-            // If not streaming format, try to parse as JSON directly (fallback)
-            try {
-              const data = JSON.parse(line);
-              if (data.summary) {
-                fullSummary = data.summary;
-                setStreamingSummary(fullSummary);
-                setSummary(fullSummary);
-                setStreamingSummary("");
-                return fullSummary;
-              }
-            } catch (e) {
-              // Not JSON, continue
-            }
-          }
-        }
-      }
-
-      // If we got content but no done signal, set it anyway
-      if (fullSummary && !summary) {
-        setSummary(fullSummary);
-        setStreamingSummary("");
-      }
-      
-      return fullSummary;
+      return { summary: parsedSummary, highlights: parsedHighlights };
     } catch (error) {
-      console.error("Error generating summary:", error);
-      return "";
+      console.error("Error generating entry preview:", error);
+      return { summary: "", highlights: [] };
     } finally {
       setIsGeneratingSummary(false);
     }
@@ -467,8 +431,29 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
           ]
         : messages;
 
-      const finalSummary = summary || (await generateSummary(currentMessages));
-      await onComplete(currentMessages, finalSummary, selectedMood);
+      let finalSummary = summary;
+      let finalHighlights = highlights;
+
+      if (!finalSummary || finalHighlights.length === 0) {
+        const preview = await generateEntryPreview(currentMessages);
+        finalSummary = preview.summary;
+        finalHighlights = preview.highlights;
+      }
+
+      if (!finalSummary) {
+        finalSummary = "Summary unavailable. Please update this entry to add more detail.";
+      }
+
+      if (finalHighlights.length === 0) {
+        finalHighlights = [
+          {
+            title: "Daily Reflection",
+            description: "Highlights unavailable. Please update this entry later.",
+          },
+        ];
+      }
+
+      await onComplete(currentMessages, finalSummary, finalHighlights, selectedMood);
       setIsCompleted(true);
     } catch (error) {
       console.error("Error finalizing conversation:", error);
@@ -613,38 +598,62 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
           </div>
           <div className="flex-1 min-h-0 p-4">
             <div className="flex flex-col h-full overflow-hidden">
-              <h4 className="font-semibold mb-2">Summary</h4>
-              <div className="flex-1 min-h-0 max-h-full overflow-hidden">
-                {isGeneratingSummary ? (
-                  <div className="bg-github-dark rounded p-3 border border-github-dark-border h-full overflow-y-auto">
-                    {streamingSummary ? (
-                      <div className="prose prose-invert prose-sm max-w-none">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingSummary}</ReactMarkdown>
-                        <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse" />
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-gray-400">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                        <div
-                          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: "0.2s" }}
-                        />
-                        <div
-                          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: "0.4s" }}
-                        />
-                        <span className="text-sm">Generating summary...</span>
-                      </div>
-                    )}
-                  </div>
-                ) : summary ? (
-                  <div className="prose prose-invert prose-sm max-w-none bg-github-dark rounded p-3 border border-github-dark-border h-full overflow-y-auto">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+              <h4 className="font-semibold mb-2">Highlights & Summary</h4>
+              <div className="flex-1 min-h-0 bg-github-dark rounded p-4 border border-github-dark-border overflow-y-auto space-y-6">
+                {isGeneratingSummary && highlights.length === 0 && !summary ? (
+                  <div className="flex flex-col items-start gap-3 text-gray-400 text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                      <div
+                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.15s" }}
+                      />
+                      <div
+                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.3s" }}
+                      />
+                      <span>Preparing highlights and summary...</span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      This may take a few seconds while we analyze your conversation.
+                    </p>
                   </div>
                 ) : (
-                  <div className="h-full flex items-center justify-center text-sm text-gray-400 border border-dashed border-github-dark-border rounded p-3">
-                    Summary will appear here once ready.
-                  </div>
+                  <>
+                    <section>
+                      <h5 className="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-3">
+                        Highlights
+                      </h5>
+                      {highlights.length > 0 ? (
+                        <ul className="list-disc space-y-2 pl-5 text-sm text-gray-200">
+                          {highlights.map((item, index) => (
+                            <li key={`${item.title}-${index}`}>
+                              <span className="font-semibold text-white">{item.title}:</span>{" "}
+                              <span className="text-gray-300">{item.description}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-gray-400">
+                          Highlights will appear here once ready.
+                        </p>
+                      )}
+                    </section>
+                    <section className="flex flex-col">
+                      <h5 className="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-3">
+                        Summary
+                      </h5>
+                      {summary ? (
+                        <div className="prose prose-invert prose-sm max-w-none">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400">
+                          Summary will appear here once ready.
+                        </p>
+                      )}
+                    </section>
+                  </>
                 )}
               </div>
             </div>

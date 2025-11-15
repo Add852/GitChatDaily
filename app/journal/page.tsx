@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ChatbotInterface } from "@/components/ChatbotInterface";
-import { ChatbotProfile, ConversationMessage, JournalEntry } from "@/types";
+import { ChatbotProfile, ConversationMessage, HighlightItem, JournalEntry } from "@/types";
 import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 
@@ -95,6 +95,7 @@ export default function JournalPage() {
   const handleComplete = async (
     conversation: ConversationMessage[],
     summary: string,
+    highlights: HighlightItem[],
     mood: number
   ) => {
     if (!session?.user?.githubId || !selectedDate || !chatbotProfile) return;
@@ -102,10 +103,12 @@ export default function JournalPage() {
     const entry: JournalEntry = {
       id: `${session.user.githubId}-${selectedDate}`,
       date: selectedDate,
+      highlights,
       summary,
       conversation,
       mood,
       chatbotProfileId: chatbotProfile.id,
+      chatbotProfileName: chatbotProfile.name,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -129,7 +132,10 @@ export default function JournalPage() {
         body: JSON.stringify({
           date: selectedDate,
           summary,
+          highlights,
+          conversation,
           mood,
+          chatbotProfileName: chatbotProfile.name,
         }),
       });
 

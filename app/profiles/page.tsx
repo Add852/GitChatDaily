@@ -160,9 +160,9 @@ export default function ProfilesPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold mb-2">Chatbot Profiles</h1>
-            <p className="text-gray-400">Customize your AI companion's personality</p>
+            <p className="text-gray-400">Customize your AI companion&rsquo;s personality</p>
             <p className="text-sm text-gray-500 mt-1">
-              Only the current profile is used in conversations. Switch it below when you're ready for a new persona.
+              Only the current profile is used in conversations. Switch it below when you&rsquo;re ready for a new persona.
             </p>
           </div>
           <button
@@ -216,7 +216,7 @@ export default function ProfilesPage() {
                   required
                 />
                 <p className="text-xs text-gray-400 mt-1">
-                  Define the chatbot's personality, goals, and behavior
+                  Define the chatbot&rsquo;s personality, goals, and behavior
                 </p>
               </div>
               <div className="flex gap-2">

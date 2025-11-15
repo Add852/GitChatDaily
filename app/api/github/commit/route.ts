@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { Octokit } from "@octokit/rest";
+import { ConversationMessage, HighlightItem } from "@/types";
+import { buildJournalEntryMarkdown } from "@/lib/templates/journalEntry";
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +12,54 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { date, summary, mood } = await req.json();
+    const {
+      date,
+      summary,
+      highlights,
+      mood,
+      conversation,
+      chatbotProfileName,
+    } = await req.json();
+
+    if (!date || typeof summary !== "string" || typeof mood !== "number") {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedHighlights: HighlightItem[] = Array.isArray(highlights)
+      ? highlights
+          .map((item: HighlightItem, index: number) => ({
+            title:
+              typeof item?.title === "string" && item.title.trim().length > 0
+                ? item.title.trim()
+                : `Highlight ${index + 1}`,
+            description:
+              typeof item?.description === "string" && item.description.trim().length > 0
+                ? item.description.trim()
+                : "",
+          }))
+          .filter((item) => item.description.length > 0)
+      : [];
+
+    const normalizedConversation: ConversationMessage[] = Array.isArray(conversation)
+      ? conversation
+          .map((message: ConversationMessage) => {
+            if (
+              (message.role === "user" || message.role === "assistant") &&
+              typeof message.content === "string"
+            ) {
+              return {
+                role: message.role,
+                content: message.content,
+                timestamp: message.timestamp ?? new Date().toISOString(),
+              };
+            }
+            return null;
+          })
+          .filter((message): message is ConversationMessage => Boolean(message))
+      : [];
 
     const octokit = new Octokit({
       auth: session.user.accessToken,
@@ -54,16 +103,14 @@ export async function POST(req: NextRequest) {
       // File doesn't exist, that's okay
     }
 
-    // Create or update the file
-    const moodEmoji = ["😢", "😕", "😐", "🙂", "😄"][mood - 1] || "😐";
-    const content = `# Journal Entry - ${date} ${moodEmoji}
-
-${summary}
-
----
-*Mood: ${mood}/5*
-*Created with GitChat Journal*
-`;
+    const content = buildJournalEntryMarkdown({
+      date,
+      mood,
+      chatbotName: chatbotProfileName || "GitChat Companion",
+      highlights: normalizedHighlights,
+      summary,
+      conversation: normalizedConversation,
+    });
 
     const contentBase64 = Buffer.from(content).toString("base64");
 

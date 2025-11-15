@@ -1,8 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { HighlightItem } from "@/types";
 
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || "http://localhost:11434";
+
+interface SummaryResponse {
+  highlights: HighlightItem[];
+  summary: string;
+}
+
+const SYSTEM_PROMPT = `You are a journaling assistant that extracts daily highlights and writes a concise narrative summary.
+
+Return ONLY valid JSON that matches this TypeScript type:
+{
+  "highlights": Array<{ "title": string; "description": string }>,
+  "summary": string
+}
+
+Rules:
+- Provide 2-4 highlights.
+- Titles must be short (max 5 words) and Title Case.
+- Descriptions are 1 sentence, first person ("I"), and include concrete details from the conversation.
+- Summary is 2-3 sentences, warm, second person, and mentions emotions plus outcomes.
+- Do not include markdown or additional prose outside the JSON payload.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,22 +33,16 @@ export async function POST(req: NextRequest) {
     }
 
     const { conversation } = await req.json();
+    if (!Array.isArray(conversation) || conversation.length === 0) {
+      return NextResponse.json(
+        { error: "Conversation data missing" },
+        { status: 400 }
+      );
+    }
 
     const conversationText = conversation
       .map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`)
       .join("\n\n");
-
-    const prompt = `Based on the following conversation, create a warm, supportive summary of the user's day in markdown format. The summary should be:
-- Written in second person ("you")
-- Warm and empathetic
-- Well-structured with markdown formatting
-- 2-4 paragraphs long
-- Focus on the key events, feelings, and insights from the conversation
-
-Conversation:
-${conversationText}
-
-Provide only the markdown summary, no additional text.`;
 
     const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
       method: "POST",
@@ -36,8 +51,14 @@ Provide only the markdown summary, no additional text.`;
       },
       body: JSON.stringify({
         model: "llama3.2:3b",
-        messages: [{ role: "user", content: prompt }],
-        stream: true,
+        stream: false,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Conversation Transcript:\n${conversationText}`,
+          },
+        ],
       }),
     });
 
@@ -45,70 +66,73 @@ Provide only the markdown summary, no additional text.`;
       throw new Error("Ollama API error");
     }
 
-    // Stream the summary response
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
+    const data = await response.json();
+    const rawContent = data?.message?.content?.trim();
+    if (!rawContent) {
+      throw new Error("Empty response from model");
+    }
 
-        if (!reader) {
-          controller.close();
-          return;
-        }
+    const parsedPayload = parseJsonPayload(rawContent);
+    if (!parsedPayload) {
+      throw new Error("Invalid summary format");
+    }
 
-        let buffer = "";
-        let fullSummary = "";
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+    const summaryResponse: SummaryResponse = {
+      highlights: normalizeHighlights(parsedPayload.highlights),
+      summary: typeof parsedPayload.summary === "string"
+        ? parsedPayload.summary.trim()
+        : "",
+    };
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              try {
-                const data = JSON.parse(line);
-                if (data.message?.content !== undefined) {
-                  fullSummary += data.message.content;
-                  controller.enqueue(
-                    new TextEncoder().encode(`data: ${JSON.stringify({ content: data.message.content, done: data.done || false })}\n\n`)
-                  );
-                }
-              } catch (e) {
-                // Skip invalid JSON
-              }
-            }
-          }
-          
-          // Send final done signal
-          controller.enqueue(
-            new TextEncoder().encode(`data: ${JSON.stringify({ done: true })}\n\n`)
-          );
-        } catch (error) {
-          console.error("Stream error:", error);
-          controller.error(error);
-        } finally {
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
+    return NextResponse.json(summaryResponse);
   } catch (error) {
     console.error("Summarization error:", error);
     return NextResponse.json(
-      { error: "Failed to generate summary" },
+      { error: "Failed to generate highlights and summary" },
       { status: 500 }
     );
   }
+}
+
+function parseJsonPayload(content: string): any | null {
+  const start = content.indexOf("{");
+  const end = content.lastIndexOf("}");
+
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+
+  try {
+    const jsonText = content.slice(start, end + 1);
+    return JSON.parse(jsonText);
+  } catch (error) {
+    console.error("Failed to parse JSON payload:", error);
+    return null;
+  }
+}
+
+function normalizeHighlights(input: any): HighlightItem[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input
+    .map((item, index) => {
+      const title =
+        typeof item?.title === "string" && item.title.trim().length > 0
+          ? item.title.trim()
+          : `Highlight ${index + 1}`;
+      const description =
+        typeof item?.description === "string" && item.description.trim().length > 0
+          ? item.description.trim()
+          : "";
+
+      if (!description) {
+        return null;
+      }
+
+      return { title, description };
+    })
+    .filter((item): item is HighlightItem => Boolean(item));
 }
 
