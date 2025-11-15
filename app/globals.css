@@ -39,3 +39,8 @@ body {
   background: #484f58;
 }
 
+/* Date picker icon */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+

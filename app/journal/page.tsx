@@ -16,7 +16,6 @@ export default function JournalPage() {
   const [chatbotProfile, setChatbotProfile] = useState<ChatbotProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [conversationActive, setConversationActive] = useState(false);
-  const [existingEntry, setExistingEntry] = useState<JournalEntry | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
 
   useEffect(() => {
@@ -41,33 +40,6 @@ export default function JournalPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.githubId]);
-
-  useEffect(() => {
-    if (session && selectedDate) {
-      checkExistingEntry();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.githubId, selectedDate]);
-
-  const checkExistingEntry = async () => {
-    if (!session?.user?.githubId || !selectedDate) return;
-    try {
-      // First sync entries from GitHub
-      await fetch("/api/journal/sync", { method: "POST" });
-      
-      // Then check for existing entry
-      const response = await fetch(`/api/journal?date=${selectedDate}`);
-      if (response.ok) {
-        const entry = await response.json();
-        setExistingEntry(entry);
-      } else {
-        setExistingEntry(null);
-      }
-    } catch (error) {
-      console.error("Error checking existing entry:", error);
-      setExistingEntry(null);
-    }
-  };
 
   const fetchChatbotProfile = async () => {
     try {
@@ -148,9 +120,6 @@ export default function JournalPage() {
         console.error("Failed to sync to GitHub, but entry saved locally");
       }
 
-      // Update existing entry state
-      setExistingEntry(entry);
-
       // Don't auto-redirect - let user view the summary
       // If redirect is needed, go to entries page instead
       // router.push("/entries");
@@ -192,31 +161,23 @@ export default function JournalPage() {
                 <input
                   type="date"
                   value={selectedDate}
+                  onClick={() => {
+                    if (!conversationActive) {
+                      router.push(`/entries/${selectedDate}`);
+                    }
+                  }}
                   onChange={(e) => {
                     const newDate = e.target.value;
-                    setExistingEntry(null);
                     setSelectedDate(newDate);
                     router.push(`/journal?date=${newDate}`);
                   }}
-                  className="bg-github-dark-hover border border-github-dark-border rounded-lg px-3 py-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-github-green"
-                  disabled={conversationActive}
+                  className={`bg-github-dark-hover border border-github-dark-border rounded-lg px-3 py-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-github-green ${
+                    conversationActive ? "cursor-not-allowed" : "cursor-pointer"
+                  }`}
                 />
               </div>
+              <EntryStatus selectedDate={selectedDate} />
             </div>
-            {existingEntry && (
-              <div className="mt-2 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
-                <p className="text-sm text-yellow-400">
-                  ⚠️ An entry already exists for {selectedDate}.{" "}
-                  <button
-                    onClick={() => router.push(`/entries/${selectedDate}`)}
-                    className="underline hover:text-yellow-300 transition-colors"
-                  >
-                    View existing entry
-                  </button>
-                  {" "}Creating a new entry will overwrite the existing one.
-                </p>
-              </div>
-            )}
           </div>
           {chatbotProfile && (
             <div className="text-right">
@@ -249,5 +210,64 @@ export default function JournalPage() {
       </main>
     </div>
   );
+}
+
+function EntryStatus({ selectedDate }: { selectedDate: string }) {
+  const [status, setStatus] = useState<"checking" | "exists" | "none">("checking");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setStatus("checking");
+
+    const checkEntry = async () => {
+      try {
+        const response = await fetch(`/api/journal?date=${selectedDate}`, {
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        if (response.ok) {
+          setStatus("exists");
+        } else if (response.status === 404) {
+          setStatus("none");
+        } else {
+          setStatus("none");
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error("Entry status check failed:", error);
+          setStatus("none");
+        }
+      }
+    };
+
+    void checkEntry();
+
+    return () => {
+      controller.abort();
+    };
+  }, [selectedDate]);
+
+  let content = null;
+  if (status === "checking") {
+    content = <p className="text-sm text-gray-400">Checking for entries on this date…</p>;
+  } else if (status === "exists") {
+    content = (
+      <p className="text-sm text-yellow-400 flex items-center gap-2">
+        Entry already exists.
+        <button
+          onClick={() => window.location.assign(`/entries/${selectedDate}`)}
+          className="text-xs text-github-green underline hover:text-github-green-hover"
+        >
+          View entry
+        </button>
+      </p>
+    );
+  } else if (status === "none") {
+    content = <p className="text-sm text-green-400">No entry yet for this date.</p>;
+  }
+
+  return <div className="min-h-[20px]">{content}</div>;
 }
 

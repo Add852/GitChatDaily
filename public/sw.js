@@ -35,7 +35,15 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+
   if (request.method !== "GET" || request.url.startsWith("chrome-extension")) {
+    return;
+  }
+
+  const url = new URL(request.url);
+
+  // Always bypass the service worker for API/Auth requests to avoid caching sensitive responses
+  if (url.pathname.startsWith("/api/")) {
     return;
   }
 
@@ -44,6 +52,7 @@ self.addEventListener("fetch", (event) => {
       if (cachedResponse) {
         return cachedResponse;
       }
+
       return fetch(request)
         .then((networkResponse) => {
           if (
@@ -53,6 +62,7 @@ self.addEventListener("fetch", (event) => {
           ) {
             return networkResponse;
           }
+
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
           return networkResponse;
