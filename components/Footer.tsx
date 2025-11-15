@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export function Footer() {
   return (
     <footer className="bg-github-dark border-t border-github-dark-border mt-12">
@@ -15,14 +17,12 @@ export function Footer() {
           >
             Source
           </a>
-          <a
-            href="https://github.com/Add852"
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/contact"
             className="hover:text-white transition-colors"
           >
             Contact
-          </a>
+          </Link>
         </div>
       </div>
     </footer>
