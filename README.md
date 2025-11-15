@@ -66,3 +66,8 @@ ollama pull llama3.2:3b
 
 MIT
 
+## Developers
+
+- **Anthony Dayrit** - [@Add852](https://github.com/Add852)
+- **Keith Yamzon** - [@yammzzon](https://github.com/yammzzon)
+
