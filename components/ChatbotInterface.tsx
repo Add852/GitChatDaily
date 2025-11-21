@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { ConversationMessage, ChatbotProfile, HighlightItem, ApiStatus } from "@/types";
 import { MOOD_OPTIONS, clampResponseCount } from "@/lib/constants";
@@ -89,12 +89,7 @@ export function ChatbotInterface({
     }
   }, []);
 
-  useEffect(() => {
-    // Check API status on mount only (cached)
-    checkApiStatus(true);
-  }, []);
-
-  const checkApiStatus = async (useCache: boolean = true) => {
+  const checkApiStatus = useCallback(async (useCache: boolean = true) => {
     // Use cache if available and not expired
     if (useCache && apiStatusCacheRef.current) {
       const cacheAge = Date.now() - apiStatusCacheRef.current.timestamp;
@@ -118,7 +113,12 @@ export function ChatbotInterface({
     } catch (error) {
       console.error("Error checking API status:", error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Check API status on mount only (cached)
+    checkApiStatus(true);
+  }, [checkApiStatus]);
 
   useEffect(() => {
     scrollToBottom();

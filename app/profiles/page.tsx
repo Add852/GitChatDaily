@@ -460,7 +460,7 @@ export default function ProfilesPage() {
                     ) : openRouterModels.length === 0 ? (
                       <>
                         <p className="text-xs text-gray-400 mt-1 mb-2">
-                          Click "Load Models" to fetch available models
+                          Click &ldquo;Load Models&rdquo; to fetch available models
                         </p>
                         <button
                           onClick={fetchOpenRouterModels}
@@ -564,7 +564,7 @@ export default function ProfilesPage() {
                                 );
                               }).length === 0 && (
                                 <div className="px-4 py-8 text-center text-gray-400">
-                                  No models found matching "{modelSearchQuery}"
+                                  No models found matching &ldquo;{modelSearchQuery}&rdquo;
                                 </div>
                               )}
                             </div>
