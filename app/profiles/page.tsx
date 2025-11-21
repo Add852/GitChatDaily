@@ -388,7 +388,7 @@ export default function ProfilesPage() {
                 )}
               </div>
               <button
-                onClick={checkApiStatus}
+                onClick={() => checkApiStatus(false)}
                 disabled={checkingStatus}
                 className="px-3 py-1 text-sm bg-github-dark-hover hover:bg-github-dark-border rounded border border-github-dark-border disabled:opacity-60"
               >
