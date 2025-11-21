@@ -5,20 +5,23 @@ A GitHub-themed daily conversational chatbot journaling system that syncs your j
 ## Features
 
 - 🔐 GitHub OAuth authentication
-- 💬 Conversational AI chatbot for journaling (powered by Ollama)
+- 💬 Conversational AI chatbot for journaling (supports Ollama or OpenRouter)
 - 📝 Automated markdown journal entry summaries
 - 🔄 GitHub commit sync for each journal entry
 - 📊 GitHub-style contribution graph with mood colors
 - 🎭 Customizable chatbot profiles
 - 😊 Mood tracking (1-5 scale with emojis)
 - ✏️ Edit and overwrite journal entries
+- ☁️ Cloud AI support via OpenRouter (optional)
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ 
-- Ollama installed and running with llama3.2:3b model
+- Node.js 18+
+- **AI Provider (choose one):**
+  - **Ollama**: Install and run locally with llama3.2:3b model
+  - **OpenRouter**: Create an account at [openrouter.ai](https://openrouter.ai) and get an API key
 
 ### Installation
 
@@ -37,7 +40,7 @@ cp .env.example .env.local
 - `GITHUB_CLIENT_SECRET` - Your GitHub OAuth App Client Secret
 - `NEXTAUTH_URL` - Your application URL (e.g., http://localhost:3000)
 - `NEXTAUTH_SECRET` - A random secret for NextAuth (generate with `openssl rand -base64 32`)
-- `OLLAMA_API_URL` - Your Ollama API URL (default: http://localhost:11434)
+- `OLLAMA_API_URL` - Your Ollama API URL (optional, default: http://localhost:11434)
 
 4. Run the development server:
 ```bash
@@ -53,7 +56,9 @@ npm run dev
 3. Set Authorization callback URL to: `http://localhost:3000/api/auth/callback/github`
 4. Copy the Client ID and Client Secret to your `.env.local` file
 
-## Ollama Setup
+## AI Provider Setup
+
+### Option 1: Ollama (Local)
 
 1. Install Ollama from [ollama.ai](https://ollama.ai)
 2. Pull the llama3.2:3b model:
@@ -61,6 +66,15 @@ npm run dev
 ollama pull llama3.2:3b
 ```
 3. Start Ollama (it should run on http://localhost:11434 by default)
+
+### Option 2: OpenRouter (Cloud)
+
+1. Create an account at [openrouter.ai](https://openrouter.ai)
+2. Generate an API key from [openrouter.ai/keys](https://openrouter.ai/keys)
+3. Configure your API provider in the app settings (Profiles page)
+4. Select a model from the available OpenRouter models
+
+**Note:** You can switch between Ollama and OpenRouter anytime in the app settings. OpenRouter requires an API key and credits, while Ollama runs locally for free.
 
 ## License
 

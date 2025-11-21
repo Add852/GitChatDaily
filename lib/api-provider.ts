@@ -30,9 +30,21 @@ export async function callOllamaApi(
   systemPrompt?: string,
   stream: boolean = true
 ): Promise<Response> {
-  const requestMessages = systemPrompt
-    ? [{ role: "system", content: systemPrompt }, ...messages]
-    : messages;
+  // Ollama supports "system", "user", and "assistant" roles
+  type OllamaMessage = {
+    role: "system" | "user" | "assistant";
+    content: string;
+  };
+
+  const requestMessages: OllamaMessage[] = systemPrompt
+    ? [{ role: "system", content: systemPrompt }, ...messages.map((msg) => ({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+      }))]
+    : messages.map((msg) => ({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+      }));
 
   const response = await fetch(`${apiUrl}/api/chat`, {
     method: "POST",
@@ -62,8 +74,14 @@ export async function callOpenRouterApi(
   stream: boolean = true
 ): Promise<Response> {
   // Convert messages format for OpenRouter
-  const openRouterMessages = messages.map((msg) => ({
-    role: msg.role,
+  // OpenRouter supports "system", "user", and "assistant" roles
+  type OpenRouterMessage = {
+    role: "system" | "user" | "assistant";
+    content: string;
+  };
+
+  const openRouterMessages: OpenRouterMessage[] = messages.map((msg) => ({
+    role: msg.role as "user" | "assistant",
     content: msg.content,
   }));
 
