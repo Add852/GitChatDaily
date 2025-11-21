@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { ConversationMessage, ChatbotProfile, HighlightItem } from "@/types";
+import { ConversationMessage, ChatbotProfile, HighlightItem, ApiStatus } from "@/types";
 import { MOOD_OPTIONS, clampResponseCount } from "@/lib/constants";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -46,6 +46,9 @@ export function ChatbotInterface({
   const [isCompleted, setIsCompleted] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [isAnalyzingMood, setIsAnalyzingMood] = useState(false);
+  const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
+  const apiStatusCacheRef = useRef<{ status: ApiStatus | null; timestamp: number } | null>(null);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -85,6 +88,37 @@ export function ChatbotInterface({
       startConversation();
     }
   }, []);
+
+  useEffect(() => {
+    // Check API status on mount only (cached)
+    checkApiStatus(true);
+  }, []);
+
+  const checkApiStatus = async (useCache: boolean = true) => {
+    // Use cache if available and not expired
+    if (useCache && apiStatusCacheRef.current) {
+      const cacheAge = Date.now() - apiStatusCacheRef.current.timestamp;
+      if (cacheAge < CACHE_DURATION) {
+        setApiStatus(apiStatusCacheRef.current.status);
+        return;
+      }
+    }
+
+    try {
+      const response = await fetch("/api/api-status");
+      if (response.ok) {
+        const status = await response.json();
+        setApiStatus(status);
+        // Cache the result
+        apiStatusCacheRef.current = {
+          status,
+          timestamp: Date.now(),
+        };
+      }
+    } catch (error) {
+      console.error("Error checking API status:", error);
+    }
+  };
 
   useEffect(() => {
     scrollToBottom();
@@ -132,6 +166,8 @@ export function ChatbotInterface({
   }, []);
 
   const startConversation = async () => {
+    // Don't check API status here - the actual API call will handle errors
+    // This reduces unnecessary API requests and rate limit usage
     setIsLoading(true);
     setStreamingMessage("");
     setShowMoodSelector(false);
@@ -283,6 +319,8 @@ export function ChatbotInterface({
   const handleSend = async () => {
     if (!input.trim() || isLoading || conversationEnded) return;
 
+    // Don't check API status here - the actual API call will handle errors
+    // This reduces unnecessary API requests and rate limit usage
     const userMessage: ConversationMessage = {
       role: "user",
       content: input.trim(),
@@ -492,8 +530,30 @@ export function ChatbotInterface({
       {/* Chat Interface */}
       <div className={`flex flex-col ${showMoodSelector ? 'flex-1' : 'w-full'} h-full bg-github-dark border border-github-dark-border rounded-lg min-w-0`}>
         <div className="p-4 border-b border-github-dark-border">
-          <h3 className="text-lg font-semibold">{chatbotProfile.name}</h3>
-          <p className="text-sm text-gray-400">{chatbotProfile.description}</p>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-lg font-semibold">{chatbotProfile.name}</h3>
+              <p className="text-sm text-gray-400">{chatbotProfile.description}</p>
+            </div>
+            {apiStatus && (
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  apiStatus.available ? "bg-green-500" : "bg-red-500"
+                }`} />
+                <span className="text-xs text-gray-400">
+                  {apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"}
+                </span>
+              </div>
+            )}
+          </div>
+          {apiStatus && !apiStatus.available && (
+            <div className="mt-2 p-3 bg-red-900/20 border border-red-700/50 rounded text-xs text-red-400">
+              <div className="font-semibold mb-1">Error Details:</div>
+              <div className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
+                {apiStatus.error || "API unavailable. Please check your settings."}
+              </div>
+            </div>
+          )}
         </div>
 
         <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">

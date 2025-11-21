@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import { HighlightItem, ConversationMessage } from "@/types";
+import {
+  getUserApiSettings,
+  callOllamaApi,
+  callOpenRouterApi,
+} from "@/lib/api-provider";
 
-const OLLAMA_API_URL = process.env.OLLAMA_API_URL || "http://localhost:11434";
 const MIN_HIGHLIGHTS = 1;
 const MAX_HIGHLIGHTS = 5;
 
@@ -53,32 +57,66 @@ export async function POST(req: NextRequest) {
       })
       .join("\n\n");
 
-    const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama3.2:3b",
-        stream: false,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `Conversation Transcript:\n${conversationText}`,
-          },
-        ],
-      }),
-    });
+    // Get user API settings
+    const userId = (session.user as any)?.githubId || session.user?.email || "unknown";
+    const settings = await getUserApiSettings(
+      userId,
+      (session.user as any)?.accessToken
+    );
 
-    if (!response.ok) {
-      throw new Error("Ollama API error");
-    }
+    const userMessage: ConversationMessage = {
+      role: "user",
+      content: `Conversation Transcript:\n${conversationText}`,
+      timestamp: new Date().toISOString(),
+    };
 
-    const data = await response.json();
-    const rawContent = data?.message?.content?.trim();
-    if (!rawContent) {
-      throw new Error("Empty response from model");
+    let response: Response;
+    let rawContent: string;
+
+    if (settings.provider === "openrouter") {
+      if (!settings.openRouterApiKey || !settings.openRouterModel) {
+        throw new Error("OpenRouter API key or model not configured");
+      }
+
+      response = await callOpenRouterApi(
+        settings.openRouterApiKey,
+        settings.openRouterModel,
+        [userMessage],
+        SYSTEM_PROMPT,
+        false
+      );
+
+      if (!response.ok) {
+        throw new Error("OpenRouter API error");
+      }
+
+      const data = await response.json();
+      rawContent = data?.choices?.[0]?.message?.content?.trim();
+      if (!rawContent) {
+        throw new Error("Empty response from model");
+      }
+    } else {
+      // Ollama
+      const apiUrl = settings.ollamaApiUrl || process.env.OLLAMA_API_URL || "http://localhost:11434";
+      const model = settings.ollamaModel || "llama3.2:3b";
+
+      response = await callOllamaApi(
+        apiUrl,
+        model,
+        [userMessage],
+        SYSTEM_PROMPT,
+        false
+      );
+
+      if (!response.ok) {
+        throw new Error("Ollama API error");
+      }
+
+      const data = await response.json();
+      rawContent = data?.message?.content?.trim();
+      if (!rawContent) {
+        throw new Error("Empty response from model");
+      }
     }
 
     const parsedPayload = parseJsonPayload(rawContent);

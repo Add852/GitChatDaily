@@ -2,9 +2,9 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Navbar } from "@/components/Navbar";
-import { ChatbotProfile } from "@/types";
+import { ChatbotProfile, UserApiSettings, ApiStatus, OpenRouterModel, ApiProvider } from "@/types";
 import {
   DEFAULT_CHATBOT_PROFILE,
   DEFAULT_RESPONSE_COUNT,
@@ -28,6 +28,22 @@ export default function ProfilesPage() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [settingCurrentId, setSettingCurrentId] = useState<string | null>(null);
+  const [showApiSettings, setShowApiSettings] = useState(false);
+  const [apiSettings, setApiSettings] = useState<UserApiSettings>({
+    provider: "ollama",
+    ollamaApiUrl: process.env.NEXT_PUBLIC_OLLAMA_API_URL || "http://localhost:11434",
+    ollamaModel: "llama3.2:3b",
+  });
+  const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [savingApiSettings, setSavingApiSettings] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const apiStatusCacheRef = useRef<{ status: ApiStatus | null; timestamp: number } | null>(null);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -38,8 +54,38 @@ export default function ProfilesPage() {
   useEffect(() => {
     if (session) {
       fetchProfiles();
+      fetchApiSettings();
+      // Use cached status if available, otherwise check
+      checkApiStatus(true);
     }
   }, [session]);
+
+  useEffect(() => {
+    if (apiSettings.provider === "openrouter" && showApiSettings) {
+      fetchOpenRouterModels();
+    }
+  }, [apiSettings.provider, showApiSettings]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsModelDropdownOpen(false);
+        setModelSearchQuery("");
+      }
+    };
+
+    if (isModelDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isModelDropdownOpen]);
 
   const fetchProfiles = async () => {
     try {
@@ -162,6 +208,91 @@ export default function ProfilesPage() {
     }
   };
 
+  const fetchApiSettings = async () => {
+    try {
+      const response = await fetch("/api/user-settings");
+      if (response.ok) {
+        const settings = await response.json();
+        setApiSettings(settings);
+      }
+    } catch (error) {
+      console.error("Error fetching API settings:", error);
+    }
+  };
+
+  const fetchOpenRouterModels = async () => {
+    setLoadingModels(true);
+    try {
+      const response = await fetch("/api/openrouter/models");
+      if (response.ok) {
+        const models = await response.json();
+        setOpenRouterModels(models);
+      } else {
+        console.error("Failed to fetch OpenRouter models");
+      }
+    } catch (error) {
+      console.error("Error fetching OpenRouter models:", error);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const checkApiStatus = async (useCache: boolean = false) => {
+    // Use cache if available and not expired
+    if (useCache && apiStatusCacheRef.current) {
+      const cacheAge = Date.now() - apiStatusCacheRef.current.timestamp;
+      if (cacheAge < CACHE_DURATION) {
+        setApiStatus(apiStatusCacheRef.current.status);
+        return;
+      }
+    }
+
+    setCheckingStatus(true);
+    try {
+      const response = await fetch("/api/api-status");
+      if (response.ok) {
+        const status = await response.json();
+        setApiStatus(status);
+        // Cache the result
+        apiStatusCacheRef.current = {
+          status,
+          timestamp: Date.now(),
+        };
+      }
+    } catch (error) {
+      console.error("Error checking API status:", error);
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  const handleSaveApiSettings = async () => {
+    setSavingApiSettings(true);
+    try {
+      const response = await fetch("/api/user-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiSettings),
+      });
+
+      if (response.ok) {
+        // Clear cache and force fresh check after settings change
+        apiStatusCacheRef.current = null;
+        await checkApiStatus(false);
+        setShowApiSettings(false);
+        alert("API settings saved successfully!");
+      } else {
+        const error = await response.json();
+        alert(error.error || "Failed to save API settings");
+      }
+    } catch (error) {
+      console.error("Error saving API settings:", error);
+      alert("Failed to save API settings. Please try again.");
+    } finally {
+      setSavingApiSettings(false);
+    }
+  };
+
   if (status === "loading" || loading) {
     return (
       <div className="min-h-screen bg-github-dark">
@@ -191,24 +322,308 @@ export default function ProfilesPage() {
               Only the current profile is used in conversations. Switch it below when you&rsquo;re ready for a new persona.
             </p>
           </div>
-          <button
-            onClick={() => {
-              setShowCreateForm(true);
-              setEditingProfile(null);
-              setFormData({
-                name: "",
-                description: "",
-                systemPrompt: DEFAULT_CHATBOT_PROFILE.systemPrompt,
-                responseCountInput: (
-                  DEFAULT_CHATBOT_PROFILE.responseCount ?? DEFAULT_RESPONSE_COUNT
-                ).toString(),
-              });
-            }}
-            className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors"
-          >
-            Create Profile
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setShowApiSettings(!showApiSettings);
+                if (!showApiSettings) {
+                  fetchApiSettings();
+                  // Don't check status here - it's already checked on mount
+                  // User can manually refresh if needed
+                }
+              }}
+              className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg transition-colors border border-github-dark-border"
+            >
+              API Settings
+            </button>
+            <button
+              onClick={() => {
+                setShowCreateForm(true);
+                setEditingProfile(null);
+                setFormData({
+                  name: "",
+                  description: "",
+                  systemPrompt: DEFAULT_CHATBOT_PROFILE.systemPrompt,
+                  responseCountInput: (
+                    DEFAULT_CHATBOT_PROFILE.responseCount ?? DEFAULT_RESPONSE_COUNT
+                  ).toString(),
+                });
+              }}
+              className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors"
+            >
+              Create Profile
+            </button>
+          </div>
         </div>
+
+        {/* API Status Indicator */}
+        {apiStatus && (
+          <div className={`mb-6 p-4 rounded-lg border ${
+            apiStatus.available
+              ? "bg-green-900/20 border-green-700/50"
+              : "bg-red-900/20 border-red-700/50"
+          }`}>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${
+                apiStatus.available ? "bg-green-500" : "bg-red-500"
+              }`} />
+              <div className="flex-1">
+                <div className="font-semibold">
+                  {apiStatus.available
+                    ? `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Available`
+                    : `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Unavailable`}
+                </div>
+                {apiStatus.error && (
+                  <div className="text-sm text-gray-400 mt-2">
+                    <div className="font-semibold mb-1">Error Details:</div>
+                    <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed bg-github-dark-hover p-2 rounded border border-github-dark-border">
+                      {apiStatus.error}
+                    </div>
+                  </div>
+                )}
+                {apiStatus.lastChecked && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Last checked: {new Date(apiStatus.lastChecked).toLocaleTimeString()}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={checkApiStatus}
+                disabled={checkingStatus}
+                className="px-3 py-1 text-sm bg-github-dark-hover hover:bg-github-dark-border rounded border border-github-dark-border disabled:opacity-60"
+              >
+                {checkingStatus ? "Checking..." : "Refresh"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* API Settings Form */}
+        {showApiSettings && (
+          <div className="bg-github-dark border border-github-dark-border rounded-lg p-6 mb-6">
+            <h2 className="text-xl font-semibold mb-4">API Settings</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">API Provider</label>
+                <select
+                  value={apiSettings.provider}
+                  onChange={(e) => {
+                    const provider = e.target.value as ApiProvider;
+                    setApiSettings({
+                      ...apiSettings,
+                      provider,
+                      // Reset provider-specific fields when switching
+                      ...(provider === "openrouter"
+                        ? { openRouterApiKey: "", openRouterModel: "" }
+                        : {
+                            ollamaApiUrl: process.env.NEXT_PUBLIC_OLLAMA_API_URL || "http://localhost:11434",
+                            ollamaModel: "llama3.2:3b",
+                          }),
+                    });
+                  }}
+                  className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                >
+                  <option value="ollama">Ollama (Local)</option>
+                  <option value="openrouter">OpenRouter (Cloud)</option>
+                </select>
+              </div>
+
+              {apiSettings.provider === "openrouter" ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">OpenRouter API Key</label>
+                    <input
+                      type="password"
+                      value={apiSettings.openRouterApiKey || ""}
+                      onChange={(e) =>
+                        setApiSettings({ ...apiSettings, openRouterApiKey: e.target.value })
+                      }
+                      placeholder="sk-or-v1-..."
+                      className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Get your API key from{" "}
+                      <a
+                        href="https://openrouter.ai/keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-github-green hover:underline"
+                      >
+                        openrouter.ai/keys
+                      </a>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Model</label>
+                    {loadingModels ? (
+                      <div className="text-gray-400">Loading models...</div>
+                    ) : openRouterModels.length === 0 ? (
+                      <>
+                        <p className="text-xs text-gray-400 mt-1 mb-2">
+                          Click "Load Models" to fetch available models
+                        </p>
+                        <button
+                          onClick={fetchOpenRouterModels}
+                          className="px-3 py-1 text-sm bg-github-dark-hover hover:bg-github-dark-border rounded border border-github-dark-border"
+                        >
+                          Load Models
+                        </button>
+                      </>
+                    ) : (
+                      <div className="relative" ref={modelDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                          className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green text-left flex items-center justify-between"
+                        >
+                          <span className="truncate">
+                            {apiSettings.openRouterModel
+                              ? openRouterModels.find((m) => m.id === apiSettings.openRouterModel)?.name ||
+                                apiSettings.openRouterModel
+                              : "Select a model"}
+                          </span>
+                          <svg
+                            className={`w-5 h-5 transition-transform ${
+                              isModelDropdownOpen ? "rotate-180" : ""
+                            }`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </button>
+                        {isModelDropdownOpen && (
+                          <div className="absolute z-10 w-full mt-1 bg-github-dark border border-github-dark-border rounded-lg shadow-lg max-h-96 overflow-hidden flex flex-col">
+                            <div className="p-2 border-b border-github-dark-border">
+                              <input
+                                type="text"
+                                value={modelSearchQuery}
+                                onChange={(e) => setModelSearchQuery(e.target.value)}
+                                placeholder="Search models..."
+                                className="w-full bg-github-dark-hover border border-github-dark-border rounded px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-github-green"
+                                autoFocus
+                              />
+                            </div>
+                            <div className="overflow-y-auto max-h-80">
+                              {openRouterModels
+                                .filter((model) => {
+                                  if (!modelSearchQuery) return true;
+                                  const query = modelSearchQuery.toLowerCase();
+                                  return (
+                                    model.name.toLowerCase().includes(query) ||
+                                    model.id.toLowerCase().includes(query) ||
+                                    (model.description &&
+                                      model.description.toLowerCase().includes(query))
+                                  );
+                                })
+                                .map((model) => (
+                                  <button
+                                    key={model.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setApiSettings({
+                                        ...apiSettings,
+                                        openRouterModel: model.id,
+                                      });
+                                      setIsModelDropdownOpen(false);
+                                      setModelSearchQuery("");
+                                    }}
+                                    className={`w-full text-left px-4 py-2 hover:bg-github-dark-hover transition-colors ${
+                                      apiSettings.openRouterModel === model.id
+                                        ? "bg-github-green/20 text-github-green"
+                                        : "text-gray-300"
+                                    }`}
+                                  >
+                                    <div className="font-medium">{model.name}</div>
+                                    <div className="text-xs text-gray-400 mt-0.5">
+                                      {model.id}
+                                      {model.context_length &&
+                                        ` • ${model.context_length.toLocaleString()} context`}
+                                    </div>
+                                    {model.description && (
+                                      <div className="text-xs text-gray-500 mt-1 line-clamp-1">
+                                        {model.description}
+                                      </div>
+                                    )}
+                                  </button>
+                                ))}
+                              {openRouterModels.filter((model) => {
+                                if (!modelSearchQuery) return true;
+                                const query = modelSearchQuery.toLowerCase();
+                                return (
+                                  model.name.toLowerCase().includes(query) ||
+                                  model.id.toLowerCase().includes(query) ||
+                                  (model.description &&
+                                    model.description.toLowerCase().includes(query))
+                                );
+                              }).length === 0 && (
+                                <div className="px-4 py-8 text-center text-gray-400">
+                                  No models found matching "{modelSearchQuery}"
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Ollama API URL</label>
+                    <input
+                      type="text"
+                      value={apiSettings.ollamaApiUrl || ""}
+                      onChange={(e) =>
+                        setApiSettings({ ...apiSettings, ollamaApiUrl: e.target.value })
+                      }
+                      placeholder="http://localhost:11434"
+                      className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Model</label>
+                    <input
+                      type="text"
+                      value={apiSettings.ollamaModel || ""}
+                      onChange={(e) =>
+                        setApiSettings({ ...apiSettings, ollamaModel: e.target.value })
+                      }
+                      placeholder="llama3.2:3b"
+                      className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveApiSettings}
+                  disabled={savingApiSettings}
+                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-wait"
+                >
+                  {savingApiSettings ? "Saving..." : "Save Settings"}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowApiSettings(false);
+                    fetchApiSettings(); // Reset to saved settings
+                  }}
+                  className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg transition-colors border border-github-dark-border"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showCreateForm && (
           <div className="bg-github-dark border border-github-dark-border rounded-lg p-6 mb-6">

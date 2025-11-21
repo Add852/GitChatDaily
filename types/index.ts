@@ -48,3 +48,31 @@ export interface MoodOption {
   color: string;
 }
 
+export type ApiProvider = "ollama" | "openrouter";
+
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  description?: string;
+  context_length?: number;
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+  };
+}
+
+export interface UserApiSettings {
+  provider: ApiProvider;
+  openRouterApiKey?: string;
+  openRouterModel?: string;
+  ollamaApiUrl?: string;
+  ollamaModel?: string;
+}
+
+export interface ApiStatus {
+  available: boolean;
+  provider: ApiProvider;
+  error?: string;
+  lastChecked?: string;
+}
+
