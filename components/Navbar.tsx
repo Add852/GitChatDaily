@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn, signOut, useSession } from "next-auth/react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
@@ -64,9 +65,11 @@ export function Navbar() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center min-w-0 flex-1">
               <Link href="/" className="flex items-center space-x-2 min-w-0">
-                <img
+                <Image
                   src="/icons/app-icon.svg"
                   alt="GitChat Journal logo"
+                  width={40}
+                  height={40}
                   className="w-8 h-8 lg:w-10 lg:h-10 flex-shrink-0"
                 />
                 <span className="text-base lg:text-xl font-semibold truncate">
@@ -176,9 +179,11 @@ export function Navbar() {
                       onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
                       className="flex items-center focus:outline-none"
                     >
-                      <img
-                        src={session.user?.image || ""}
-                        alt={session.user?.name || ""}
+                      <Image
+                        src={session.user?.image || "/icons/app-icon.png"}
+                        alt={session.user?.name || "User"}
+                        width={32}
+                        height={32}
                         className="w-8 h-8 rounded-full cursor-pointer hover:ring-2 hover:ring-github-green transition-all"
                         title="Profile menu"
                       />
@@ -321,9 +326,11 @@ export function Navbar() {
                 onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
                 className="flex flex-col items-center justify-center"
               >
-                <img
-                  src={session.user?.image || ""}
-                  alt={session.user?.name || ""}
+                <Image
+                  src={session.user?.image || "/icons/app-icon.png"}
+                  alt={session.user?.name || "User"}
+                  width={24}
+                  height={24}
                   className={`w-6 h-6 rounded-full mb-1 transition-all ${
                     isProfileDropdownOpen ? "ring-2 ring-github-green" : ""
                   }`}

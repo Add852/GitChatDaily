@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Navbar } from "@/components/Navbar";
 
 const developers = [
@@ -42,18 +43,24 @@ export default function ContactPage() {
               className="bg-github-dark-hover border border-github-dark-border rounded-2xl p-8 hover:border-github-green transition-colors"
             >
               <div className="flex flex-col items-center text-center mb-6">
-                <img
-                  src={developer.avatar}
-                  alt={developer.name}
-                  className="w-24 h-24 rounded-full mb-4 border-2 border-github-dark-border"
-                  onError={(e) => {
-                    // Fallback to a default avatar if image fails to load
-                    (e.target as HTMLImageElement).src =
-                      "https://ui-avatars.com/api/?name=" +
-                      encodeURIComponent(developer.name) +
-                      "&background=238636&color=fff&size=128";
-                  }}
-                />
+                <div className="relative w-24 h-24 mb-4">
+                  <Image
+                    src={developer.avatar}
+                    alt={developer.name}
+                    width={96}
+                    height={96}
+                    className="rounded-full border-2 border-github-dark-border object-cover"
+                    onError={(e) => {
+                      // Fallback to a default avatar if image fails to load
+                      const target = e.target as HTMLImageElement;
+                      target.src =
+                        "https://ui-avatars.com/api/?name=" +
+                        encodeURIComponent(developer.name) +
+                        "&background=238636&color=fff&size=128";
+                    }}
+                    unoptimized
+                  />
+                </div>
                 <h2 className="text-2xl font-semibold mb-1">{developer.name}</h2>
                 <p className="text-github-green text-sm font-medium mb-4">
                   {developer.role}

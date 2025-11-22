@@ -61,6 +61,7 @@ export default function ChatbotsPage() {
       // Use cached status if available, otherwise check
       checkApiStatus(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   useEffect(() => {

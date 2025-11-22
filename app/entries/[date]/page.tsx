@@ -28,12 +28,6 @@ export default function EntryDetailPage() {
     }
   }, [status, router]);
 
-  useEffect(() => {
-    if (session && date) {
-      fetchEntry();
-    }
-  }, [session, date]);
-
   const fetchEntry = async () => {
     try {
       const response = await fetch(`/api/journal?date=${date}`);
@@ -61,6 +55,13 @@ export default function EntryDetailPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (session && date) {
+      fetchEntry();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, date]);
 
   const handleSave = async () => {
     if (!entry) return;

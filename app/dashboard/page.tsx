@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Navbar } from "@/components/Navbar";
 import { ContributionGraph } from "@/components/ContributionGraph";
 import { ContributionGraphSkeleton, Skeleton } from "@/components/Skeleton";
@@ -228,9 +229,11 @@ export default function Dashboard() {
         {/* Mobile-First: Welcome Section - Brief and Simple */}
         <section className="space-y-2 sm:space-y-3">
           <div className="flex items-center gap-2 sm:gap-3">
-            <img
+            <Image
               src="/icons/app-icon.svg"
               alt="GitChat Journal logo"
+              width={40}
+              height={40}
               className="w-8 h-8 sm:w-10 sm:h-10 lg:hidden flex-shrink-0"
             />
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">
@@ -497,7 +500,7 @@ export default function Dashboard() {
           <div>
             <h3 className="font-semibold mb-2 text-github-green">Total Private Commits</h3>
             <p className="text-gray-300">
-              Total number of journal entries you've created. Each entry is saved as a private commit in your GitHub repository.
+              Total number of journal entries you&apos;ve created. Each entry is saved as a private commit in your GitHub repository.
             </p>
           </div>
           

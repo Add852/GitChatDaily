@@ -121,12 +121,133 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
   };
 
 
-  useEffect(() => {
-    if (initialConversation.length === 0 && !conversationStarted.current) {
-      conversationStarted.current = true;
-      startConversation();
+  const startConversation = async () => {
+    // Don't check API status here - the actual API call will handle errors
+    // This reduces unnecessary API requests and rate limit usage
+    setIsLoading(true);
+    setStreamingMessage("");
+    setShowMoodSelector(false);
+    setIsReviewReady(false);
+    setConversationEnded(false);
+    conversationEndedRef.current = false;
+    setMessages(initialConversation);
+    setInput("");
+    setIsCompleted(false);
+    setIsReviewModalOpen(false);
+    onConversationStart?.();
+    let messageAdded = false; // Declare outside try block so it's accessible in finally
+    try {
+      const response = await fetch("/api/ollama/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: initialConversation,
+          chatbotProfile,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = "";
+      let buffer = "";
+
+      if (!reader) {
+        throw new Error("No response body");
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          // Process any remaining buffer
+          if (buffer.trim()) {
+            const lines = buffer.split("\n");
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                if (data === "[DONE]") {
+                  break;
+                }
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.content) {
+                    fullContent += parsed.content;
+                  }
+                } catch (e) {
+                  // Ignore parse errors
+                }
+              }
+            }
+          }
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.startsWith("data: ") ? line.slice(6) : line;
+            if (data === "[DONE]") {
+              console.log("Received [DONE] signal");
+              console.log("Full content length:", fullContent.length);
+              console.log("Full content:", fullContent);
+              // Mark that we've received the done signal, but continue processing
+              // to ensure we don't miss any buffered content
+              if (fullContent.trim() && !messageAdded) {
+                console.log("Adding message to state");
+                const assistantMessage: ConversationMessage = {
+                  role: "assistant",
+                  content: fullContent.trim(),
+                  timestamp: new Date().toISOString(),
+                };
+                setMessages((prev) => [...prev, assistantMessage]);
+                messageAdded = true;
+                setStreamingMessage("");
+              }
+              break;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) {
+                fullContent += parsed.content;
+                setStreamingMessage(fullContent);
+              }
+            } catch (e) {
+              // Ignore parse errors for incomplete JSON
+            }
+          }
+        }
+      }
+
+      // Final check: if we have content but haven't added the message yet
+      if (fullContent.trim() && !messageAdded) {
+        console.log("Adding final message to state");
+        const assistantMessage: ConversationMessage = {
+          role: "assistant",
+          content: fullContent.trim(),
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+        setStreamingMessage("");
+      }
+    } catch (error) {
+      console.error("Error starting conversation:", error);
+      alert("Failed to start conversation. Please check your API settings.");
+    } finally {
+      setIsLoading(false);
+      // Don't clear streaming message here - it should already be cleared when message is added
+      // Only clear if we're in an error state
+      if (!messageAdded) {
+        console.log("Clearing streaming message in finally block");
+        setStreamingMessage("");
+      }
     }
-  }, []);
+  };
 
   const checkApiStatus = useCallback(async (useCache: boolean = true) => {
     // Use cache if available and not expired
@@ -152,7 +273,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     } catch (error) {
       console.error("Error checking API status:", error);
     }
-  }, []);
+  }, [CACHE_DURATION]);
 
   useEffect(() => {
     // Check API status on mount only (cached)
@@ -221,158 +342,6 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     };
   }, []);
 
-  const startConversation = async () => {
-    // Don't check API status here - the actual API call will handle errors
-    // This reduces unnecessary API requests and rate limit usage
-    setIsLoading(true);
-    setStreamingMessage("");
-    setShowMoodSelector(false);
-    setIsReviewReady(false);
-    setSummary("");
-    setHighlights([]);
-    setSuggestedMood(null);
-    setSelectedMood(null);
-    setConversationEnded(false);
-    conversationEndedRef.current = false;
-    setIsFinalizing(false);
-    setIsCompleted(false);
-    setIsGeneratingSummary(false);
-    setIsAnalyzingMood(false);
-    setIsReviewModalOpen(false);
-    onConversationStart?.();
-    let messageAdded = false; // Declare outside try block so it's accessible in finally
-    try {
-      const response = await fetch("/api/ollama/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [],
-          systemPrompt: buildSystemPrompt(chatbotProfile, 0),
-        }),
-      });
-
-      if (!response.body) {
-        throw new Error("No response body");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let fullContent = "";
-      let buffer = "";
-
-      console.log("\n=== FRONTEND: Starting conversation stream ===");
-
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-        }
-        
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (!line.trim() || !line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6)); // Remove "data: " prefix
-            if (data.content !== undefined) {
-              fullContent += data.content;
-              console.log("Received content chunk, total length:", fullContent.length);
-              setStreamingMessage(fullContent);
-            }
-            if (data.done) {
-              console.log("Received done signal");
-              console.log("Full content length:", fullContent.length);
-              console.log("Full content:", fullContent);
-              // Mark that we've received the done signal, but continue processing
-              // to ensure we don't miss any buffered content
-              if (fullContent.trim() && !messageAdded) {
-                console.log("Adding message to state");
-                const greeting: ConversationMessage = {
-                  role: "assistant",
-                  content: fullContent.trim(),
-                  timestamp: new Date().toISOString(),
-                };
-                const updatedMessages = [greeting];
-                setMessages(updatedMessages);
-                setStreamingMessage("");
-                messageAdded = true;
-                void evaluateConversationState(updatedMessages);
-              } else {
-                console.log("Skipping message add - content empty or already added");
-                console.log("fullContent.trim():", fullContent.trim());
-                console.log("messageAdded:", messageAdded);
-              }
-            }
-          } catch (e) {
-            console.error("Error parsing line:", e, "Line:", line);
-          }
-        }
-        
-        // Only exit when the stream reader itself is done
-        if (done) {
-          console.log("Stream reader done");
-          break;
-        }
-      }
-      
-      // Process any remaining buffer content after stream ends
-      if (buffer.trim()) {
-        console.log("Processing remaining buffer");
-        try {
-          const data = JSON.parse(buffer);
-          if (data.content !== undefined) {
-            fullContent += data.content;
-            setStreamingMessage(fullContent);
-          }
-          if (data.done && fullContent.trim() && !messageAdded) {
-            console.log("Adding message from remaining buffer");
-            const greeting: ConversationMessage = {
-              role: "assistant",
-              content: fullContent.trim(),
-              timestamp: new Date().toISOString(),
-            };
-            const updatedMessages = [greeting];
-            setMessages(updatedMessages);
-            setStreamingMessage("");
-            messageAdded = true;
-            void evaluateConversationState(updatedMessages);
-          }
-        } catch (e) {
-          console.error("Error parsing remaining buffer:", e);
-        }
-      }
-      
-      // Final fallback: If we have content but no message was added, add it now
-      if (fullContent.trim() && !messageAdded) {
-        console.log("Final fallback: Adding message");
-        const greeting: ConversationMessage = {
-          role: "assistant",
-          content: fullContent.trim(),
-          timestamp: new Date().toISOString(),
-        };
-        const updatedMessages = [greeting];
-        setMessages(updatedMessages);
-        setStreamingMessage("");
-        void evaluateConversationState(updatedMessages);
-      } else if (!messageAdded) {
-        console.log("WARNING: No message was added! fullContent:", fullContent);
-      }
-      
-      console.log("=== FRONTEND: Stream processing complete ===\n");
-    } catch (error) {
-      console.error("Error starting conversation:", error);
-    } finally {
-      setIsLoading(false);
-      // Don't clear streaming message here - it should already be cleared when message is added
-      // Only clear if we're in an error state
-      if (!messageAdded) {
-        console.log("Clearing streaming message in finally block");
-        setStreamingMessage("");
-      }
-    }
-  };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading || conversationEnded) return;
@@ -756,7 +725,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
   return (
     <div className="flex flex-col lg:flex-row h-full gap-4 overflow-hidden">
       {/* Chat Interface */}
-      <div className={`flex flex-col ${showMoodSelector ? 'flex-1 lg:w-auto' : 'w-full'} h-full bg-github-dark border border-github-dark-border rounded-lg min-w-0 overflow-hidden`}>
+      <div className={`flex flex-col ${showMoodSelector ? "flex-1 lg:w-auto" : "w-full"} h-full bg-github-dark border border-github-dark-border rounded-lg min-w-0 overflow-hidden`}>
         <div className="p-3 sm:p-4 border-b border-github-dark-border">
           <div className="flex items-start justify-between mb-2 gap-2">
             <div className="flex-1 min-w-0">
