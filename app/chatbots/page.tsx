@@ -6,7 +6,7 @@ import { useEffect, useState, useRef } from "react";
 import { Navbar } from "@/components/Navbar";
 import { CardSkeleton } from "@/components/Skeleton";
 import { Modal } from "@/components/Modal";
-import { ChatbotProfile, UserApiSettings, ApiStatus, OpenRouterModel, ApiProvider } from "@/types";
+import { ChatbotProfile, UserApiSettings, ApiStatus, OpenRouterModel, GeminiModel, ApiProvider } from "@/types";
 import {
   DEFAULT_CHATBOT_PROFILE,
   DEFAULT_RESPONSE_COUNT,
@@ -37,6 +37,7 @@ export default function ChatbotsPage() {
     ollamaModel: "llama3.2:3b",
   });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [geminiModels, setGeminiModels] = useState<GeminiModel[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
@@ -65,6 +66,8 @@ export default function ChatbotsPage() {
   useEffect(() => {
     if (apiSettings.provider === "openrouter" && showApiSettings) {
       fetchOpenRouterModels();
+    } else if (apiSettings.provider === "gemini" && showApiSettings) {
+      fetchGeminiModels();
     }
   }, [apiSettings.provider, showApiSettings]);
 
@@ -250,6 +253,23 @@ export default function ChatbotsPage() {
     }
   };
 
+  const fetchGeminiModels = async () => {
+    setLoadingModels(true);
+    try {
+      const response = await fetch("/api/gemini/models");
+      if (response.ok) {
+        const models = await response.json();
+        setGeminiModels(models);
+      } else {
+        console.error("Failed to fetch Gemini models");
+      }
+    } catch (error) {
+      console.error("Error fetching Gemini models:", error);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
   const checkApiStatus = async (useCache: boolean = false) => {
     // Use cache if available and not expired
     if (useCache && apiStatusCacheRef.current) {
@@ -388,8 +408,8 @@ export default function ChatbotsPage() {
                   }`} />
                   <span>
                     {apiStatus.available
-                      ? `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Available`
-                      : `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Unavailable`}
+                      ? `${apiStatus.provider === "openrouter" ? "OpenRouter" : apiStatus.provider === "gemini" ? "Gemini" : "Ollama"} API Available`
+                      : `${apiStatus.provider === "openrouter" ? "OpenRouter" : apiStatus.provider === "gemini" ? "Gemini" : "Ollama"} API Unavailable`}
                   </span>
                 </div>
                 {apiStatus.error && (
@@ -439,6 +459,8 @@ export default function ChatbotsPage() {
                       // Reset provider-specific fields when switching
                       ...(provider === "openrouter"
                         ? { openRouterApiKey: "", openRouterModel: "" }
+                        : provider === "gemini"
+                        ? { geminiApiKey: "", geminiModel: "" }
                         : {
                             ollamaApiUrl: process.env.NEXT_PUBLIC_OLLAMA_API_URL || "http://localhost:11434",
                             ollamaModel: "llama3.2:3b",
@@ -449,10 +471,157 @@ export default function ChatbotsPage() {
                 >
                   <option value="ollama">Ollama (Local)</option>
                   <option value="openrouter">OpenRouter (Cloud)</option>
+                  <option value="gemini">Gemini (Google)</option>
                 </select>
               </div>
 
-              {apiSettings.provider === "openrouter" ? (
+              {apiSettings.provider === "gemini" ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Gemini API Key</label>
+                    <input
+                      type="password"
+                      value={apiSettings.geminiApiKey || ""}
+                      onChange={(e) =>
+                        setApiSettings({ ...apiSettings, geminiApiKey: e.target.value })
+                      }
+                      placeholder="AIza..."
+                      className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Get your API key from{" "}
+                      <a
+                        href="https://makersuite.google.com/app/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-github-green hover:underline"
+                      >
+                        Google AI Studio
+                      </a>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Model</label>
+                    {loadingModels ? (
+                      <div className="text-gray-400">Loading models...</div>
+                    ) : geminiModels.length === 0 ? (
+                      <>
+                        <p className="text-xs text-gray-400 mt-1 mb-2">
+                          Click &ldquo;Load Models&rdquo; to fetch available models
+                        </p>
+                        <button
+                          onClick={fetchGeminiModels}
+                          className="px-3 py-1 text-sm bg-github-dark-hover hover:bg-github-dark-border rounded border border-github-dark-border"
+                        >
+                          Load Models
+                        </button>
+                      </>
+                    ) : (
+                      <div className="relative" ref={modelDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                          className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green text-left flex items-center justify-between"
+                        >
+                          <span className="truncate">
+                            {apiSettings.geminiModel
+                              ? geminiModels.find((m) => m.id === apiSettings.geminiModel)?.name ||
+                                apiSettings.geminiModel
+                              : "Select a model"}
+                          </span>
+                          <svg
+                            className={`w-5 h-5 transition-transform ${
+                              isModelDropdownOpen ? "rotate-180" : ""
+                            }`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </button>
+                        {isModelDropdownOpen && (
+                          <div className="absolute z-50 w-full mt-1 bg-github-dark border border-github-dark-border rounded-lg shadow-lg max-h-96 overflow-hidden flex flex-col">
+                            <div className="p-2 border-b border-github-dark-border">
+                              <input
+                                type="text"
+                                value={modelSearchQuery}
+                                onChange={(e) => setModelSearchQuery(e.target.value)}
+                                placeholder="Search models..."
+                                className="w-full bg-github-dark-hover border border-github-dark-border rounded px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-github-green"
+                                autoFocus
+                              />
+                            </div>
+                            <div className="overflow-y-auto max-h-80">
+                              {geminiModels
+                                .filter((model) => {
+                                  if (!modelSearchQuery) return true;
+                                  const query = modelSearchQuery.toLowerCase();
+                                  return (
+                                    model.name.toLowerCase().includes(query) ||
+                                    model.id.toLowerCase().includes(query) ||
+                                    (model.description &&
+                                      model.description.toLowerCase().includes(query))
+                                  );
+                                })
+                                .map((model) => (
+                                  <button
+                                    key={model.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setApiSettings({
+                                        ...apiSettings,
+                                        geminiModel: model.id,
+                                      });
+                                      setIsModelDropdownOpen(false);
+                                      setModelSearchQuery("");
+                                    }}
+                                    className={`w-full text-left px-4 py-2 hover:bg-github-dark-hover transition-colors ${
+                                      apiSettings.geminiModel === model.id
+                                        ? "bg-github-green/20 text-github-green"
+                                        : "text-gray-300"
+                                    }`}
+                                  >
+                                    <div className="font-medium">{model.name}</div>
+                                    <div className="text-xs text-gray-400 mt-0.5">
+                                      {model.id}
+                                      {model.inputTokenLimit &&
+                                        ` • ${model.inputTokenLimit.toLocaleString()} input tokens`}
+                                    </div>
+                                    {model.description && (
+                                      <div className="text-xs text-gray-500 mt-1 line-clamp-1">
+                                        {model.description}
+                                      </div>
+                                    )}
+                                  </button>
+                                ))}
+                              {geminiModels.filter((model) => {
+                                if (!modelSearchQuery) return true;
+                                const query = modelSearchQuery.toLowerCase();
+                                return (
+                                  model.name.toLowerCase().includes(query) ||
+                                  model.id.toLowerCase().includes(query) ||
+                                  (model.description &&
+                                    model.description.toLowerCase().includes(query))
+                                );
+                              }).length === 0 && (
+                                <div className="px-4 py-8 text-center text-gray-400">
+                                  No models found matching &ldquo;{modelSearchQuery}&rdquo;
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : apiSettings.provider === "openrouter" ? (
                 <>
                   <div>
                     <label className="block text-sm font-medium mb-2">OpenRouter API Key</label>

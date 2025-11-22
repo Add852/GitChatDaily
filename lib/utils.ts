@@ -11,10 +11,6 @@ export function formatDate(date: Date | string): string {
   return `${year}-${month}-${day}`;
 }
 
-export function getDateKey(date: Date | string): string {
-  return formatDate(date);
-}
-
 export function getDaysInYear(year: number): Date[] {
   const days: Date[] = [];
   const start = new Date(year, 0, 1);

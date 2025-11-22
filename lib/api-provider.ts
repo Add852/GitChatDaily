@@ -200,6 +200,166 @@ export function transformOpenRouterStream(ollamaStream: ReadableStream<Uint8Arra
   });
 }
 
+export async function callGeminiApi(
+  apiKey: string,
+  model: string,
+  messages: ConversationMessage[],
+  systemPrompt?: string,
+  stream: boolean = true
+): Promise<Response> {
+  // Gemini API uses a different format
+  // Convert messages to Gemini's format
+  // Gemini uses "user" and "model" roles (not "assistant")
+  type GeminiContent = {
+    role: "user" | "model";
+    parts: Array<{ text: string }>;
+  };
+
+  const geminiContents: GeminiContent[] = [];
+  
+  // Add system prompt as first user message if provided
+  if (systemPrompt) {
+    geminiContents.push({
+      role: "user",
+      parts: [{ text: systemPrompt }],
+    });
+    // Add a model response to acknowledge the system prompt
+    geminiContents.push({
+      role: "model",
+      parts: [{ text: "Understood." }],
+    });
+  }
+
+  // Convert conversation messages
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      geminiContents.push({
+        role: "user",
+        parts: [{ text: msg.content }],
+      });
+    } else if (msg.role === "assistant") {
+      geminiContents.push({
+        role: "model",
+        parts: [{ text: msg.content }],
+      });
+    }
+  }
+
+  // Use the Gemini REST API
+  // For streaming, use SSE endpoint; for non-streaming, use regular endpoint
+  const endpoint = stream ? "streamGenerateContent" : "generateContent";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${apiKey}${stream ? "&alt=sse" : ""}`;
+  
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contents: geminiContents,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error: ${response.status} ${errorText}`);
+  }
+
+  return response;
+}
+
+export function transformGeminiStream(geminiStream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    async start(controller) {
+      const reader = geminiStream.getReader();
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            // Gemini SSE format: "data: {json}" or plain JSONL
+            let jsonLine = line;
+            if (line.startsWith("data: ")) {
+              jsonLine = line.slice(6); // Remove "data: " prefix
+            }
+            
+            try {
+              const data = JSON.parse(jsonLine);
+              
+              // Gemini streaming format: { "candidates": [{ "content": { "parts": [{ "text": "..." }] } }] }
+              if (data.candidates && data.candidates[0]) {
+                const candidate = data.candidates[0];
+                const content = candidate.content;
+                if (content && content.parts && content.parts[0]) {
+                  const text = content.parts[0].text;
+                  if (text) {
+                    controller.enqueue(
+                      encoder.encode(`data: ${JSON.stringify({ content: text, done: false })}\n\n`)
+                    );
+                  }
+                }
+                
+                // Check if this is the final chunk
+                if (candidate.finishReason) {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`)
+                  );
+                }
+              }
+            } catch (e) {
+              // Skip invalid JSON - might be empty lines or other SSE formatting
+            }
+          }
+        }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
+          try {
+            let jsonLine = buffer.trim();
+            if (jsonLine.startsWith("data: ")) {
+              jsonLine = jsonLine.slice(6);
+            }
+            const data = JSON.parse(jsonLine);
+            if (data.candidates && data.candidates[0]) {
+              const candidate = data.candidates[0];
+              const content = candidate.content;
+              if (content && content.parts && content.parts[0]) {
+                const text = content.parts[0].text;
+                if (text) {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ content: text, done: true })}\n\n`)
+                  );
+                }
+              }
+            }
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        }
+
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`)
+        );
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+}
+
 export function transformOllamaStream(ollamaStream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
   return new ReadableStream({
     async start(controller) {

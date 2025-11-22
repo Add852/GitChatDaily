@@ -5,6 +5,7 @@ import {
   getUserApiSettings,
   callOllamaApi,
   callOpenRouterApi,
+  callGeminiApi,
 } from "@/lib/api-provider";
 import { ConversationMessage } from "@/types";
 
@@ -68,6 +69,25 @@ Respond with ONLY a single number (1, 2, 3, 4, or 5) representing the mood. No e
 
       const data = await response.json();
       moodText = data?.choices?.[0]?.message?.content?.trim();
+    } else if (settings.provider === "gemini") {
+      if (!settings.geminiApiKey || !settings.geminiModel) {
+        throw new Error("Gemini API key or model not configured");
+      }
+
+      response = await callGeminiApi(
+        settings.geminiApiKey,
+        settings.geminiModel,
+        [userMessage],
+        undefined,
+        false
+      );
+
+      if (!response.ok) {
+        throw new Error("Gemini API error");
+      }
+
+      const data = await response.json();
+      moodText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
     } else {
       // Ollama
       const apiUrl = settings.ollamaApiUrl || process.env.OLLAMA_API_URL || "http://localhost:11434";

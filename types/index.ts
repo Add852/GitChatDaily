@@ -48,7 +48,7 @@ export interface MoodOption {
   color: string;
 }
 
-export type ApiProvider = "ollama" | "openrouter";
+export type ApiProvider = "ollama" | "openrouter" | "gemini";
 
 export interface OpenRouterModel {
   id: string;
@@ -61,12 +61,24 @@ export interface OpenRouterModel {
   };
 }
 
+export interface GeminiModel {
+  id: string;
+  name: string;
+  description?: string;
+  displayName?: string;
+  supportedGenerationMethods?: string[];
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+}
+
 export interface UserApiSettings {
   provider: ApiProvider;
   openRouterApiKey?: string;
   openRouterModel?: string;
   ollamaApiUrl?: string;
   ollamaModel?: string;
+  geminiApiKey?: string;
+  geminiModel?: string;
 }
 
 export interface ApiStatus {

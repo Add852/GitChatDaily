@@ -55,9 +55,9 @@ export async function POST(req: NextRequest) {
     const settings: UserApiSettings = await req.json();
 
     // Validate settings
-    if (!settings.provider || !["ollama", "openrouter"].includes(settings.provider)) {
+    if (!settings.provider || !["ollama", "openrouter", "gemini"].includes(settings.provider)) {
       return NextResponse.json(
-        { error: "Invalid provider. Must be 'ollama' or 'openrouter'" },
+        { error: "Invalid provider. Must be 'ollama', 'openrouter', or 'gemini'" },
         { status: 400 }
       );
     }
@@ -72,6 +72,19 @@ export async function POST(req: NextRequest) {
       if (!settings.openRouterModel) {
         return NextResponse.json(
           { error: "OpenRouter model is required" },
+          { status: 400 }
+        );
+      }
+    } else if (settings.provider === "gemini") {
+      if (!settings.geminiApiKey) {
+        return NextResponse.json(
+          { error: "Gemini API key is required" },
+          { status: 400 }
+        );
+      }
+      if (!settings.geminiModel) {
+        return NextResponse.json(
+          { error: "Gemini model is required" },
           { status: 400 }
         );
       }

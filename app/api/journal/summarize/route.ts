@@ -6,6 +6,7 @@ import {
   getUserApiSettings,
   callOllamaApi,
   callOpenRouterApi,
+  callGeminiApi,
 } from "@/lib/api-provider";
 
 const MIN_HIGHLIGHTS = 1;
@@ -92,6 +93,28 @@ export async function POST(req: NextRequest) {
 
       const data = await response.json();
       rawContent = data?.choices?.[0]?.message?.content?.trim();
+      if (!rawContent) {
+        throw new Error("Empty response from model");
+      }
+    } else if (settings.provider === "gemini") {
+      if (!settings.geminiApiKey || !settings.geminiModel) {
+        throw new Error("Gemini API key or model not configured");
+      }
+
+      response = await callGeminiApi(
+        settings.geminiApiKey,
+        settings.geminiModel,
+        [userMessage],
+        SYSTEM_PROMPT,
+        false
+      );
+
+      if (!response.ok) {
+        throw new Error("Gemini API error");
+      }
+
+      const data = await response.json();
+      rawContent = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
       if (!rawContent) {
         throw new Error("Empty response from model");
       }

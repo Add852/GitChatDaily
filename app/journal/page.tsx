@@ -18,6 +18,7 @@ function JournalPageContent() {
   const [loading, setLoading] = useState(true);
   const [conversationActive, setConversationActive] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -41,6 +42,69 @@ function JournalPageContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.githubId]);
+
+  // Disable body scrolling when journal page is mounted
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  // Detect mobile keyboard visibility by monitoring viewport height changes
+  useEffect(() => {
+    let initialHeight = window.innerHeight;
+    const threshold = 0.6; // Hide header when viewport shrinks below 60% of original height
+
+    const handleResize = () => {
+      const currentHeight = window.innerHeight;
+      const heightRatio = currentHeight / initialHeight;
+      
+      // If viewport shrinks significantly, keyboard is likely visible
+      if (heightRatio < threshold) {
+        setIsKeyboardVisible(true);
+      } else {
+        setIsKeyboardVisible(false);
+      }
+    };
+
+    // Use Visual Viewport API if available (more accurate for mobile keyboards)
+    if (window.visualViewport) {
+      const handleViewportChange = () => {
+        const viewportHeight = window.visualViewport?.height || window.innerHeight;
+        const heightRatio = viewportHeight / initialHeight;
+        
+        if (heightRatio < threshold) {
+          setIsKeyboardVisible(true);
+        } else {
+          setIsKeyboardVisible(false);
+        }
+      };
+
+      window.visualViewport.addEventListener("resize", handleViewportChange);
+      window.visualViewport.addEventListener("scroll", handleViewportChange);
+
+      return () => {
+        window.visualViewport?.removeEventListener("resize", handleViewportChange);
+        window.visualViewport?.removeEventListener("scroll", handleViewportChange);
+      };
+    } else {
+      // Fallback to window resize for browsers without Visual Viewport API
+      window.addEventListener("resize", handleResize);
+      window.addEventListener("orientationchange", () => {
+        // Reset initial height on orientation change
+        setTimeout(() => {
+          initialHeight = window.innerHeight;
+          handleResize();
+        }, 100);
+      });
+
+      return () => {
+        window.removeEventListener("resize", handleResize);
+        window.removeEventListener("orientationchange", handleResize);
+      };
+    }
+  }, []);
 
   const fetchChatbotProfile = async () => {
     try {
@@ -133,9 +197,9 @@ function JournalPageContent() {
   if (!session) {
     if (status === "loading") {
       return (
-        <div className="min-h-screen bg-github-dark">
+        <div className="h-screen bg-github-dark flex flex-col overflow-hidden">
           <Navbar />
-          <div className="flex items-center justify-center h-screen">
+          <div className="flex-1 flex items-center justify-center">
             <div className="text-gray-400">Loading...</div>
           </div>
         </div>
@@ -145,13 +209,21 @@ function JournalPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-github-dark">
+    <div className="h-screen bg-github-dark flex flex-col overflow-hidden">
       <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 lg:py-8">
-        <div className="mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold mb-2">New Journal Entry</h1>
+      <main className={`flex-1 min-h-0 flex flex-col max-w-7xl mx-auto w-full px-4 sm:px-6 transition-all duration-200 ${
+        isKeyboardVisible ? "py-1 sm:py-2" : "py-3 sm:py-4 lg:py-6"
+      }`}>
+        <div
+          className={`flex-shrink-0 mb-3 sm:mb-4 transition-all duration-200 ${
+            isKeyboardVisible
+              ? "max-h-0 overflow-hidden opacity-0 mb-0 py-0"
+              : "max-h-96 opacity-100"
+          }`}
+        >
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold mb-2">New Journal Entry</h1>
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <p className="text-sm sm:text-base text-gray-400">
+            <p className="text-xs sm:text-sm lg:text-base text-gray-400">
               Have a conversation with your AI companion about your day
             </p>
             <div className="flex items-center gap-2">
@@ -176,7 +248,7 @@ function JournalPageContent() {
             </div>
           </div>
         </div>
-        <div className="h-[calc(100vh-200px)] sm:h-[calc(100vh-180px)] min-h-[500px] sm:min-h-[700px] overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden pb-16 md:pb-0">
           {loading || !chatbotProfile ? (
             <ChatbotInterfaceSkeleton />
           ) : (
@@ -199,9 +271,9 @@ function JournalPageContent() {
 
 function JournalPageFallback() {
   return (
-    <div className="min-h-screen bg-github-dark">
+    <div className="h-screen bg-github-dark flex flex-col overflow-hidden">
       <Navbar />
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex-1 flex items-center justify-center">
         <div className="text-gray-400">Loading...</div>
       </div>
     </div>

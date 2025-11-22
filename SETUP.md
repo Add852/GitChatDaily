@@ -6,6 +6,7 @@
 2. **AI Provider (choose one):**
    - **Ollama** - [Download](https://ollama.ai) (Local, free)
    - **OpenRouter** - [Sign up](https://openrouter.ai) (Cloud, requires API key)
+   - **Gemini** - [Get API key](https://makersuite.google.com/app/apikey) (Cloud, Google)
 3. **GitHub Account** - For OAuth authentication
 
 ## Installation Steps
@@ -44,7 +45,17 @@ Ollama should be running on `http://localhost:11434` by default.
    - Enter your API key
    - Choose a model from the available options
 
-**Note:** You can switch between Ollama and OpenRouter anytime in the app settings without restarting the server.
+#### Option C: Gemini (Cloud, Google)
+
+1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Sign in with your Google account
+3. Click "Create API Key" and copy the key
+4. After completing the app setup, go to the **Chatbots** page in the app to configure Gemini:
+   - Select "Gemini (Google)" as your provider
+   - Enter your API key
+   - Choose a model from the available options
+
+**Note:** You can switch between Ollama, OpenRouter, and Gemini anytime in the app settings without restarting the server.
 
 ### 3. Create GitHub OAuth App
 
@@ -64,7 +75,7 @@ Ollama should be running on `http://localhost:11434` by default.
 cp .env.example .env.local
 ```
 
-2. Edit `.env.local` and add your values:
+2. Create `.env.local` file in the root directory and add your values:
 ```env
 GITHUB_CLIENT_ID=your_github_client_id_here
 GITHUB_CLIENT_SECRET=your_github_client_secret_here
@@ -73,7 +84,7 @@ NEXTAUTH_SECRET=generate_a_random_secret_here
 OLLAMA_API_URL=http://localhost:11434
 ```
 
-**Note:** `OLLAMA_API_URL` is optional and only needed if using Ollama. If you're using OpenRouter, you can omit this variable.
+**Note:** `OLLAMA_API_URL` is optional and only needed if using Ollama. If you're using OpenRouter or Gemini, you can omit this variable.
 
 3. Generate a NextAuth secret:
 ```bash
@@ -94,20 +105,20 @@ The application will be available at [http://localhost:3000](http://localhost:30
 ### ✅ Implemented Features
 
 - **GitHub OAuth Authentication** - Seamless login with GitHub
-- **Conversational AI Chatbot** - Supports Ollama (local) or OpenRouter (cloud)
+- **Conversational AI Chatbot** - Supports Ollama (local), OpenRouter (cloud), or Gemini (cloud)
 - **Journal Entry System** - Automated markdown summaries
 - **GitHub Commit Sync** - Each entry creates a commit in a private repository
 - **Contribution Graph** - GitHub-style activity visualization with mood colors
 - **Mood Tracking** - 1-5 scale with emoji indicators
 - **Chatbots** - Customizable AI personalities
 - **Entry Management** - View, edit, and redo journal entries
-- **API Provider Selection** - Switch between Ollama and OpenRouter in settings
+- **API Provider Selection** - Switch between Ollama, OpenRouter, and Gemini in settings
 - **Responsive Design** - Works on all devices
 
 ## Usage
 
 1. **Sign In**: Click "Sign in with GitHub" on the homepage
-2. **Configure API Provider**: Go to "Chatbots" page to set up Ollama or OpenRouter
+2. **Configure API Provider**: Go to "Chatbots" page to set up Ollama, OpenRouter, or Gemini
 3. **Create Entry**: Navigate to "New Entry" and start a conversation
 4. **View Entries**: Browse all entries or click on the contribution graph
 5. **Edit Entries**: Click on any entry to view, edit, or redo the conversation
@@ -128,6 +139,12 @@ The application will be available at [http://localhost:3000](http://localhost:30
 - Ensure you have credits in your OpenRouter account
 - Check that the selected model is available
 - Verify API key permissions at [openrouter.ai/keys](https://openrouter.ai/keys)
+
+#### Gemini Issues:
+- Verify your API key is correct (should be a valid Google AI API key)
+- Ensure API key has proper permissions for Generative Language API
+- Check that the selected model is available and supports `generateContent`
+- Verify API key at [Google AI Studio](https://makersuite.google.com/app/apikey)
 
 ### GitHub OAuth Issues
 
@@ -161,6 +178,7 @@ For production deployment:
 5. **AI Provider Options:**
    - **Ollama**: Ensure Ollama is accessible from your production environment (consider Docker)
    - **OpenRouter**: Recommended for production - no infrastructure needed, just configure API key
+   - **Gemini**: Recommended for production - no infrastructure needed, just configure API key
 6. Set up proper error monitoring and logging
 
 ## Notes
@@ -174,20 +192,29 @@ For production deployment:
 
 ### Recommended Setup
 
-1. **Use OpenRouter for AI** - No infrastructure needed, just configure API key
+1. **Use OpenRouter or Gemini for AI** - No infrastructure needed, just configure API key
 2. **Environment Variables** - Set all required variables on your hosting platform
 3. **GitHub OAuth** - Update callback URL to your production domain
 4. **NextAuth Secret** - Use a strong, randomly generated secret
 
 ### Platform-Specific Notes
 
-**Vercel:**
-- Add environment variables in project settings
+**Vercel (Recommended):**
+- Push your code to GitHub
+- Import project to Vercel
+- Add environment variables in project settings:
+  - `GITHUB_CLIENT_ID`
+  - `GITHUB_CLIENT_SECRET`
+  - `NEXTAUTH_URL` (your Vercel domain)
+  - `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`)
+  - `OLLAMA_API_URL` (optional, only if using Ollama)
+- Update GitHub OAuth callback URL to: `https://your-app.vercel.app/api/auth/callback/github`
 - NextAuth works out of the box
-- No additional configuration needed
+- Automatic deployments on every push
 
 **Other Platforms:**
 - Ensure Node.js 18+ is available
 - Set `NEXTAUTH_URL` to your production domain
 - Configure GitHub OAuth callback URL
+- Set all required environment variables
 

@@ -5,8 +5,10 @@ import {
   getUserApiSettings,
   callOllamaApi,
   callOpenRouterApi,
+  callGeminiApi,
   transformOllamaStream,
   transformOpenRouterStream,
+  transformGeminiStream,
 } from "@/lib/api-provider";
 import { ConversationMessage } from "@/types";
 
@@ -62,6 +64,20 @@ export async function POST(req: NextRequest) {
       );
 
       stream = transformOpenRouterStream(response.body!);
+    } else if (settings.provider === "gemini") {
+      if (!settings.geminiApiKey || !settings.geminiModel) {
+        throw new Error("Gemini API key or model not configured");
+      }
+
+      response = await callGeminiApi(
+        settings.geminiApiKey,
+        settings.geminiModel,
+        requestMessages,
+        systemPrompt,
+        true
+      );
+
+      stream = transformGeminiStream(response.body!);
     } else {
       // Ollama
       const apiUrl = settings.ollamaApiUrl || process.env.OLLAMA_API_URL || "http://localhost:11434";

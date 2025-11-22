@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { ConversationMessage, ChatbotProfile, HighlightItem, ApiStatus } from "@/types";
 import { MOOD_OPTIONS, clampResponseCount } from "@/lib/constants";
 import ReactMarkdown from "react-markdown";
@@ -35,11 +36,13 @@ export function ChatbotInterface({
   entryDate,
 }: ChatbotInterfaceProps) {
   const { data: session } = useSession();
+  const router = useRouter();
   const [messages, setMessages] = useState<ConversationMessage[]>(initialConversation);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState<string>("");
   const [showMoodSelector, setShowMoodSelector] = useState(false);
+  const [isReviewReady, setIsReviewReady] = useState(false);
   const [summary, setSummary] = useState("");
   const [highlights, setHighlights] = useState<HighlightItem[]>([]);
   const [suggestedMood, setSuggestedMood] = useState<number | null>(null);
@@ -58,6 +61,7 @@ export function ChatbotInterface({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationStarted = useRef(false);
   const conversationEndedRef = useRef(false);
+  const originalBodyOverflowRef = useRef<string | null>(null);
   const responseLimit = clampResponseCount(chatbotProfile.responseCount);
 
   const buildSystemPrompt = (profile: ChatbotProfile, currentAssistantCount: number = 0) => {
@@ -99,12 +103,11 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     conversationEndedRef.current = true;
     setConversationEnded(true);
     onConversationEnd?.();
-    setShowMoodSelector(true);
-    // Auto-open modal on mobile devices
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
-      setIsReviewModalOpen(true);
-    }
-    await Promise.all([prepareMoodSuggestion(updatedMessages), generateEntryPreview(updatedMessages)]);
+    // Don't show panel immediately - start generation in background
+    // Generate mood and summary in background
+    Promise.all([prepareMoodSuggestion(updatedMessages), generateEntryPreview(updatedMessages)]).then(() => {
+      setIsReviewReady(true);
+    });
   };
 
   const evaluateConversationState = async (updatedMessages: ConversationMessage[]) => {
@@ -171,6 +174,23 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     conversationEndedRef.current = conversationEnded;
   }, [conversationEnded]);
 
+  // Prevent body scrolling when review panel is open
+  useEffect(() => {
+    if (showMoodSelector || isReviewModalOpen) {
+      // Store original overflow value if not already stored
+      if (originalBodyOverflowRef.current === null) {
+        originalBodyOverflowRef.current = document.body.style.overflow || "";
+      }
+      document.body.style.overflow = "hidden";
+    } else {
+      // Restore original overflow value
+      if (originalBodyOverflowRef.current !== null) {
+        document.body.style.overflow = originalBodyOverflowRef.current;
+        originalBodyOverflowRef.current = null;
+      }
+    }
+  }, [showMoodSelector, isReviewModalOpen]);
+
   useEffect(() => {
     if (suggestedMood !== null && selectedMood === null) {
       setSelectedMood(suggestedMood);
@@ -207,6 +227,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     setIsLoading(true);
     setStreamingMessage("");
     setShowMoodSelector(false);
+    setIsReviewReady(false);
     setSummary("");
     setHighlights([]);
     setSuggestedMood(null);
@@ -217,6 +238,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     setIsCompleted(false);
     setIsGeneratingSummary(false);
     setIsAnalyzingMood(false);
+    setIsReviewModalOpen(false);
     onConversationStart?.();
     let messageAdded = false; // Declare outside try block so it's accessible in finally
     try {
@@ -698,6 +720,14 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
               Your journal entry has been saved and synced to GitHub.
             </p>
             <div className="flex flex-col gap-2">
+              {entryDate && (
+                <button
+                  onClick={() => router.push(`/entries/${entryDate}`)}
+                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm"
+                >
+                  View Entry
+                </button>
+              )}
               {entryDate && session?.user && (
                 <a
                   href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${entryDate}.md`}
@@ -740,7 +770,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                     apiStatus.available ? "bg-green-500" : "bg-red-500"
                   }`} />
                   <span className="text-xs text-gray-400 hidden sm:inline">
-                    {apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"}
+                    {apiStatus.provider === "openrouter" ? "OpenRouter" : apiStatus.provider === "gemini" ? "Gemini" : "Ollama"}
                   </span>
                 </div>
               )}
@@ -830,7 +860,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
         )}
         </div>
 
-        {!showMoodSelector && (
+        {!showMoodSelector && !isReviewReady && (
           <div className="p-3 sm:p-4 border-t border-github-dark-border">
             <div className="flex gap-2">
               <textarea
@@ -851,6 +881,36 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                 Send
               </button>
             </div>
+          </div>
+        )}
+        {!showMoodSelector && isReviewReady && (
+          <div className="p-3 sm:p-4 border-t border-github-dark-border">
+            <button
+              onClick={() => {
+                setShowMoodSelector(true);
+                // Auto-open modal on mobile devices
+                if (typeof window !== "undefined" && window.innerWidth < 1024) {
+                  setIsReviewModalOpen(true);
+                }
+              }}
+              className="w-full px-4 py-3 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-all flex items-center justify-center gap-2 animate-pulse hover:animate-none shadow-lg shadow-github-green/50"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+              Review Entry
+            </button>
           </div>
         )}
         {showMoodSelector && (
@@ -878,6 +938,32 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
           </div>
         )}
       </div>
+
+      {/* Review Entry Button - Desktop */}
+      {!showMoodSelector && isReviewReady && (
+        <div className="hidden lg:flex lg:w-96 items-center justify-center">
+          <button
+            onClick={() => setShowMoodSelector(true)}
+            className="px-6 py-4 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-base font-medium transition-all flex items-center justify-center gap-2 animate-pulse hover:animate-none shadow-lg shadow-github-green/50"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            Review Entry
+          </button>
+        </div>
+      )}
 
       {/* Summary and Mood Selector Panel - Desktop Side Panel */}
       {showMoodSelector && (
@@ -1027,6 +1113,14 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                     Your journal entry has been saved and synced to GitHub.
                   </p>
                   <div className="flex flex-col gap-2">
+                    {entryDate && (
+                      <button
+                        onClick={() => window.location.href = `/entries/${entryDate}`}
+                        className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm"
+                      >
+                        View Entry
+                      </button>
+                    )}
                     {entryDate && session?.user && (
                       <a
                         href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${entryDate}.md`}

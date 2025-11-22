@@ -12,16 +12,18 @@ interface ParsedError {
   type: "network" | "authentication" | "configuration" | "api" | "unknown";
 }
 
-function parseError(error: any, provider: "ollama" | "openrouter", context?: string): ParsedError {
+function parseError(error: any, provider: "ollama" | "openrouter" | "gemini", context?: string): ParsedError {
   const errorMessage = typeof error === "string" ? error : error?.message || "";
   const errorLower = errorMessage.toLowerCase();
 
   // Network errors
   if (error.name === "AbortError" || errorLower.includes("timeout") || errorLower.includes("timed out")) {
     return {
-      message: `Connection timeout: Unable to reach ${provider === "openrouter" ? "OpenRouter" : "Ollama"} API`,
+      message: `Connection timeout: Unable to reach ${provider === "openrouter" ? "OpenRouter" : provider === "gemini" ? "Gemini" : "Ollama"} API`,
       details: provider === "ollama"
         ? "Ollama did not respond within 5 seconds. Make sure:\n1. Ollama is running on your computer\n2. The API URL is correct (default: http://localhost:11434)\n3. Ollama is not blocked by firewall or antivirus"
+        : provider === "gemini"
+        ? "Gemini API did not respond within the expected time. Check your network connection and API key."
         : "The API did not respond within the expected time. Check your network connection and API URL.",
       type: "network",
     };
@@ -35,7 +37,7 @@ function parseError(error: any, provider: "ollama" | "openrouter", context?: str
       errorLower.includes("err_connection_refused") ||
       errorLower.includes("err_network_changed")) {
     return {
-      message: `Cannot connect to ${provider === "openrouter" ? "OpenRouter" : "Ollama"} API`,
+      message: `Cannot connect to ${provider === "openrouter" ? "OpenRouter" : provider === "gemini" ? "Gemini" : "Ollama"} API`,
       details: provider === "ollama" 
         ? "Unable to reach Ollama. Please check:\n1. Is Ollama running? (Open Ollama app or run 'ollama serve')\n2. Is the API URL correct? (Check Settings → API Settings → Ollama API URL)\n3. Default URL: http://localhost:11434\n4. If using a different port, make sure it matches your Ollama configuration"
         : "Check your internet connection and try again.",
@@ -49,6 +51,8 @@ function parseError(error: any, provider: "ollama" | "openrouter", context?: str
       message: "CORS error: Cross-origin request blocked",
       details: provider === "ollama"
         ? "Ollama is blocking cross-origin requests. Make sure Ollama is configured to allow requests from this application."
+        : provider === "gemini"
+        ? "Gemini API is blocking requests from this origin."
         : "The API is blocking requests from this origin.",
       type: "network",
     };
@@ -90,6 +94,8 @@ function parseError(error: any, provider: "ollama" | "openrouter", context?: str
         message: "Cannot resolve hostname",
         details: provider === "ollama"
           ? "The Ollama API URL hostname cannot be resolved. Check:\n1. Is the URL correct? (e.g., http://localhost:11434)\n2. If using a hostname, make sure it's accessible\n3. Try using 'localhost' or '127.0.0.1' instead"
+          : provider === "gemini"
+          ? "The Gemini API hostname cannot be resolved. Check your internet connection."
           : "The API hostname cannot be resolved. Check your internet connection.",
         type: "network",
       };
@@ -100,6 +106,8 @@ function parseError(error: any, provider: "ollama" | "openrouter", context?: str
       message: "Connection error",
       details: provider === "ollama"
         ? `Unable to connect to Ollama: ${error}\n\nMake sure Ollama is running and the API URL is correct.`
+        : provider === "gemini"
+        ? `Unable to connect to Gemini: ${error}\n\nCheck your API key and network connection.`
         : error,
       type: "network",
     };
@@ -109,15 +117,19 @@ function parseError(error: any, provider: "ollama" | "openrouter", context?: str
   return {
     message: provider === "ollama" 
       ? "Unable to connect to Ollama"
+      : provider === "gemini"
+      ? "Unable to connect to Gemini"
       : "Unknown error occurred",
     details: context || (provider === "ollama"
       ? "Please check:\n1. Ollama is running\n2. API URL is correct (Settings → API Settings)\n3. No firewall is blocking the connection"
+      : provider === "gemini"
+      ? "Please check:\n1. API key is correct (Settings → API Settings)\n2. Model is selected\n3. Network connection is working"
       : "Please check your API configuration and try again."),
     type: "unknown",
   };
 }
 
-function parseJsonError(error: any, provider: "ollama" | "openrouter"): ParsedError {
+function parseJsonError(error: any, provider: "ollama" | "openrouter" | "gemini"): ParsedError {
   // OpenRouter error format
   if (error.error) {
     const errorObj = typeof error.error === "string" ? { message: error.error } : error.error;
@@ -236,6 +248,8 @@ function parseJsonError(error: any, provider: "ollama" | "openrouter"): ParsedEr
     message: errorMsg,
     details: provider === "ollama"
       ? "Please check your Ollama configuration and ensure Ollama is running."
+      : provider === "gemini"
+      ? "Please check your Gemini API key and model configuration."
       : "Please check your API configuration and try again.",
     type: "api",
   };
@@ -314,6 +328,81 @@ async function checkOllamaStatus(apiUrl: string, model: string): Promise<ApiStat
     return {
       available: false,
       provider: "ollama",
+      error: formatErrorForDisplay(parsed),
+      lastChecked: new Date().toISOString(),
+    };
+  }
+}
+
+async function checkGeminiStatus(apiKey: string, model: string): Promise<ApiStatus> {
+  try {
+    // First, validate API key format
+    if (!apiKey || !apiKey.trim()) {
+      return {
+        available: false,
+        provider: "gemini",
+        error: formatErrorForDisplay({
+          message: "API key is missing",
+          details: "Please enter your Gemini API key in settings.",
+          type: "configuration",
+        }),
+        lastChecked: new Date().toISOString(),
+      };
+    }
+
+    // Test the API with a simple request
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: "test" }],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(10000), // 10 second timeout
+    });
+
+    if (!response.ok) {
+      let errorData: any = {};
+      try {
+        const errorText = await response.text();
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { message: errorText };
+        }
+      } catch {
+        errorData = { message: `HTTP ${response.status}` };
+      }
+
+      errorData.status = response.status;
+      errorData.model = model;
+
+      const parsed = parseError(errorData, "gemini", `Gemini API returned status ${response.status}`);
+      return {
+        available: false,
+        provider: "gemini",
+        error: formatErrorForDisplay(parsed),
+        lastChecked: new Date().toISOString(),
+      };
+    }
+
+    return {
+      available: true,
+      provider: "gemini",
+      lastChecked: new Date().toISOString(),
+    };
+  } catch (error: any) {
+    const parsed = parseError(error, "gemini", "Failed to connect to Gemini API");
+    return {
+      available: false,
+      provider: "gemini",
       error: formatErrorForDisplay(parsed),
       lastChecked: new Date().toISOString(),
     };
@@ -471,6 +560,20 @@ export async function GET(req: NextRequest) {
         status = await checkOpenRouterStatus(
           settings.openRouterApiKey,
           settings.openRouterModel
+        );
+      }
+    } else if (settings.provider === "gemini") {
+      if (!settings.geminiApiKey || !settings.geminiModel) {
+        status = {
+          available: false,
+          provider: "gemini",
+          error: "Gemini API key or model not configured",
+          lastChecked: new Date().toISOString(),
+        };
+      } else {
+        status = await checkGeminiStatus(
+          settings.geminiApiKey,
+          settings.geminiModel
         );
       }
     } else {
