@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
+import { CardSkeleton } from "@/components/Skeleton";
 import { JournalEntry, HighlightItem } from "@/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -167,50 +168,70 @@ export default function EntryDetailPage() {
     }
   };
 
-  if (status === "loading" || loading) {
-    return (
-      <div className="min-h-screen bg-github-dark">
-        <Navbar />
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-gray-400">Loading...</div>
+  if (!session) {
+    if (status === "loading") {
+      return (
+        <div className="min-h-screen bg-github-dark">
+          <Navbar />
+          <div className="flex items-center justify-center h-screen">
+            <div className="text-gray-400">Loading...</div>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  if (!session || !entry) {
+      );
+    }
     return null;
   }
 
-  const moodOption = MOOD_OPTIONS.find((m) => m.value === entry.mood);
+  const moodOption = entry ? MOOD_OPTIONS.find((m) => m.value === entry.mood) : null;
 
   return (
     <div className="min-h-screen bg-github-dark">
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="mb-4">
           <button
             onClick={() => router.push("/entries")}
-            className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 text-xs sm:text-sm text-gray-400 hover:text-white transition-colors"
           >
-            <span className="text-lg">←</span> Back to entries
+            <span className="text-base sm:text-lg">←</span> Back to entries
           </button>
         </div>
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Journal Entry</h1>
-            <p className="text-gray-400">{entry.date}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">{moodOption?.emoji}</span>
-            <span className="text-lg">{moodOption?.label}</span>
-          </div>
+        <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          {loading || !entry ? (
+            <>
+              <div>
+                <div className="h-8 sm:h-9 w-48 bg-github-dark-hover rounded animate-pulse mb-2" />
+                <div className="h-5 w-32 bg-github-dark-hover rounded animate-pulse" />
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-12 sm:h-12 bg-github-dark-hover rounded animate-pulse" />
+                <div className="h-5 w-24 bg-github-dark-hover rounded animate-pulse" />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-bold mb-1 sm:mb-2">Journal Entry</h1>
+                <p className="text-sm sm:text-base text-gray-400">{entry.date}</p>
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-2xl sm:text-3xl">{moodOption?.emoji}</span>
+                <span className="text-base sm:text-lg">{moodOption?.label}</span>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="bg-github-dark border border-github-dark-border rounded-lg p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Summary</h2>
-            <div className="flex gap-2">
+        {loading || !entry ? (
+          <>
+            <CardSkeleton />
+            <CardSkeleton />
+          </>
+        ) : (
+        <div className="bg-github-dark border border-github-dark-border rounded-lg p-4 sm:p-6 mb-4 sm:mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
+            <h2 className="text-lg sm:text-xl font-semibold">Summary</h2>
+            <div className="flex flex-wrap gap-2">
               {!isEditing && (
                 <>
                   {session?.user && (
@@ -218,40 +239,41 @@ export default function EntryDetailPage() {
                       href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${date}.md`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border flex items-center gap-2"
+                      className="px-3 sm:px-4 py-1.5 sm:py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-xs sm:text-sm transition-colors border border-github-dark-border flex items-center gap-1.5 sm:gap-2"
                     >
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="currentColor" viewBox="0 0 24 24">
                         <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clipRule="evenodd" />
                       </svg>
-                      View in GitHub
+                      <span className="hidden sm:inline">View in GitHub</span>
+                      <span className="sm:hidden">GitHub</span>
                     </a>
                   )}
                   <button
                     onClick={handleDelete}
                     disabled={isDeleting}
-                    className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors border border-red-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-xs sm:text-sm transition-colors border border-red-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {isDeleting ? "Deleting..." : "Delete Entry"}
+                    {isDeleting ? "Deleting..." : "Delete"}
                   </button>
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-xs sm:text-sm transition-colors border border-github-dark-border"
                   >
                     Edit
                   </button>
                   <button
                     onClick={handleRedo}
-                    className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm transition-colors"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-xs sm:text-sm transition-colors"
                   >
-                    Redo Conversation
+                    Redo
                   </button>
                 </>
               )}
             </div>
           </div>
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-lg font-semibold">Highlights</h3>
+          <div className="mb-4 sm:mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 gap-1">
+              <h3 className="text-base sm:text-lg font-semibold">Highlights</h3>
               {isEditing && (
                 <span className="text-xs text-gray-500">
                   Edit highlights to better reflect your own words.
@@ -259,14 +281,14 @@ export default function EntryDetailPage() {
               )}
             </div>
             {isEditing ? (
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {editedHighlights.map((highlight, index) => (
                   <div
                     key={`highlight-${index}`}
-                    className="bg-github-dark-hover border border-github-dark-border rounded-lg p-4 space-y-3"
+                    className="bg-github-dark-hover border border-github-dark-border rounded-lg p-3 sm:p-4 space-y-2 sm:space-y-3"
                   >
                     <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-gray-300">Highlight {index + 1}</h4>
+                      <h4 className="text-xs sm:text-sm font-semibold text-gray-300">Highlight {index + 1}</h4>
                       {editedHighlights.length > 1 && (
                         <button
                           type="button"
@@ -281,13 +303,13 @@ export default function EntryDetailPage() {
                       type="text"
                       value={highlight.title}
                       onChange={(e) => handleHighlightChange(index, "title", e.target.value)}
-                      className="w-full bg-github-dark border border-github-dark-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-github-green"
+                      className="w-full bg-github-dark border border-github-dark-border rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-white text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-github-green"
                       placeholder="Title"
                     />
                     <textarea
                       value={highlight.description}
                       onChange={(e) => handleHighlightChange(index, "description", e.target.value)}
-                      className="w-full bg-github-dark border border-github-dark-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-github-green resize-none h-20"
+                      className="w-full bg-github-dark border border-github-dark-border rounded-lg px-2 sm:px-3 py-1.5 sm:py-2 text-white text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-github-green resize-none h-20"
                       placeholder="Description"
                     />
                   </div>
@@ -296,14 +318,14 @@ export default function EntryDetailPage() {
                   <button
                     type="button"
                     onClick={handleAddHighlight}
-                    className="px-4 py-2 border border-dashed border-github-dark-border text-sm text-gray-300 rounded-lg hover:border-github-green hover:text-white transition-colors"
+                    className="px-3 sm:px-4 py-2 border border-dashed border-github-dark-border text-xs sm:text-sm text-gray-300 rounded-lg hover:border-github-green hover:text-white transition-colors"
                   >
                     + Add highlight
                   </button>
                 )}
               </div>
             ) : entry.highlights && entry.highlights.length > 0 ? (
-              <ul className="list-disc space-y-2 pl-5 text-gray-200 text-sm">
+              <ul className="list-disc space-y-2 pl-4 sm:pl-5 text-gray-200 text-xs sm:text-sm">
                 {entry.highlights.map((highlight, index) => (
                   <li key={`${highlight.title}-${index}`}>
                     <span className="font-semibold">{highlight.title}:</span>{" "}
@@ -312,7 +334,7 @@ export default function EntryDetailPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-400">No highlights recorded for this entry.</p>
+              <p className="text-xs sm:text-sm text-gray-400">No highlights recorded for this entry.</p>
             )}
           </div>
           {isEditing ? (
@@ -320,12 +342,12 @@ export default function EntryDetailPage() {
               <textarea
                 value={editedSummary}
                 onChange={(e) => setEditedSummary(e.target.value)}
-                className="w-full h-64 bg-github-dark-hover border border-github-dark-border rounded-lg p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none font-mono text-sm"
+                className="w-full h-48 sm:h-64 bg-github-dark-hover border border-github-dark-border rounded-lg p-3 sm:p-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none font-mono text-xs sm:text-sm"
               />
-              <div className="flex gap-2 mt-4">
+              <div className="flex flex-wrap gap-2 mt-3 sm:mt-4">
                 <button
                   onClick={handleSave}
-                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm transition-colors"
+                  className="px-3 sm:px-4 py-1.5 sm:py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-xs sm:text-sm transition-colors"
                 >
                   Save
                 </button>
@@ -335,48 +357,51 @@ export default function EntryDetailPage() {
                     setEditedSummary(entry.summary);
                     setEditedHighlights(entry.highlights);
                   }}
-                  className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border"
+                  className="px-3 sm:px-4 py-1.5 sm:py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-xs sm:text-sm transition-colors border border-github-dark-border"
                 >
                   Cancel
                 </button>
               </div>
             </div>
           ) : (
-            <div className="prose prose-invert prose-lg max-w-none">
+            <div className="prose prose-invert prose-sm sm:prose-lg max-w-none">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.summary}</ReactMarkdown>
             </div>
           )}
         </div>
+        )}
 
-        <div className="bg-github-dark border border-github-dark-border rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Conversation</h2>
-          <div className="space-y-4">
+        {!loading && entry && (
+        <div className="bg-github-dark border border-github-dark-border rounded-lg p-4 sm:p-6">
+          <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Conversation</h2>
+          <div className="space-y-3 sm:space-y-4">
             {entry.conversation.map((message, index) => (
               <div
                 key={index}
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-lg p-3 ${
+                  className={`max-w-[85%] sm:max-w-[80%] rounded-lg p-2.5 sm:p-3 ${
                     message.role === "user"
                       ? "bg-github-green text-white"
                       : "bg-github-dark-hover text-gray-200"
                   }`}
                 >
                   {message.role === "assistant" ? (
-                    <div className="prose prose-invert prose-sm max-w-none">
+                    <div className="prose prose-invert prose-xs sm:prose-sm max-w-none">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {message.content}
                       </ReactMarkdown>
                     </div>
                   ) : (
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    <p className="whitespace-pre-wrap text-xs sm:text-sm">{message.content}</p>
                   )}
                 </div>
               </div>
             ))}
           </div>
         </div>
+        )}
       </main>
     </div>
   );

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { ChatbotInterface } from "@/components/ChatbotInterface";
+import { ChatbotInterfaceSkeleton } from "@/components/Skeleton";
 import { ChatbotProfile, ConversationMessage, HighlightItem, JournalEntry } from "@/types";
 import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
@@ -45,22 +46,22 @@ function JournalPageContent() {
     try {
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
-        const profiles = await response.json();
-        if (Array.isArray(profiles) && profiles.length > 0) {
+        const chatbots = await response.json();
+        if (Array.isArray(chatbots) && chatbots.length > 0) {
           const current =
-            profiles.find((p: ChatbotProfile) => p.isCurrent) ||
-            profiles[0] ||
+            chatbots.find((c: ChatbotProfile) => c.isCurrent) ||
+            chatbots[0] ||
             DEFAULT_CHATBOT_PROFILE;
           setChatbotProfile(current);
           return;
         }
       }
-      // If response not ok or no profiles
+      // If response not ok or no chatbots
       if (!chatbotProfile) {
         setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
       }
     } catch (error) {
-      console.error("Error fetching chatbot profiles:", error);
+      console.error("Error fetching chatbots:", error);
       if (!chatbotProfile) {
         setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
       }
@@ -129,73 +130,56 @@ function JournalPageContent() {
     }
   };
 
-  if (status === "loading" || loading) {
-    return (
-      <div className="min-h-screen bg-github-dark">
-        <Navbar />
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-gray-400">Loading...</div>
-        </div>
-      </div>
-    );
-  }
-
   if (!session) {
+    if (status === "loading") {
+      return (
+        <div className="min-h-screen bg-github-dark">
+          <Navbar />
+          <div className="flex items-center justify-center h-screen">
+            <div className="text-gray-400">Loading...</div>
+          </div>
+        </div>
+      );
+    }
     return null;
   }
 
   return (
     <div className="min-h-screen bg-github-dark">
       <Navbar />
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">New Journal Entry</h1>
-            <div className="flex items-center gap-3 flex-wrap">
-              <p className="text-gray-400">
-                Have a conversation with your AI companion about your day
-              </p>
-              <span className="text-sm text-gray-500">•</span>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-400">Date:</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onClick={() => {
-                    if (!conversationActive) {
-                      router.push(`/entries/${selectedDate}`);
-                    }
-                  }}
-                  onChange={(e) => {
-                    const newDate = e.target.value;
-                    setSelectedDate(newDate);
-                    router.push(`/journal?date=${newDate}`);
-                  }}
-                  className={`bg-github-dark-hover border border-github-dark-border rounded-lg px-3 py-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-github-green ${
-                    conversationActive ? "cursor-not-allowed" : "cursor-pointer"
-                  }`}
-                />
-              </div>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 lg:py-8">
+        <div className="mb-4 sm:mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">New Journal Entry</h1>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <p className="text-sm sm:text-base text-gray-400">
+              Have a conversation with your AI companion about your day
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={selectedDate}
+                onClick={() => {
+                  if (!conversationActive) {
+                    router.push(`/entries/${selectedDate}`);
+                  }
+                }}
+                onChange={(e) => {
+                  const newDate = e.target.value;
+                  setSelectedDate(newDate);
+                  router.push(`/journal?date=${newDate}`);
+                }}
+                className={`bg-github-dark-hover border border-github-dark-border rounded-lg px-2 sm:px-3 py-1 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-github-green ${
+                  conversationActive ? "cursor-not-allowed" : "cursor-pointer"
+                }`}
+              />
               <EntryStatus selectedDate={selectedDate} />
             </div>
           </div>
-          {chatbotProfile && (
-            <div className="text-right">
-              <p className="text-sm text-gray-400">
-                Current profile: <span className="text-white font-semibold">{chatbotProfile.name}</span>
-              </p>
-              <button
-                type="button"
-                className="text-xs text-github-green hover:text-github-green-hover underline mt-1"
-                onClick={() => router.push("/profiles")}
-              >
-                Manage profiles
-              </button>
-            </div>
-          )}
         </div>
-        <div className="h-[calc(100vh-180px)] min-h-[700px]">
-          {chatbotProfile && (
+        <div className="h-[calc(100vh-200px)] sm:h-[calc(100vh-180px)] min-h-[500px] sm:min-h-[700px] overflow-hidden">
+          {loading || !chatbotProfile ? (
+            <ChatbotInterfaceSkeleton />
+          ) : (
             <ChatbotInterface
               key={`${chatbotProfile.id}-${selectedDate}`}
               chatbotProfile={chatbotProfile}
@@ -203,6 +187,7 @@ function JournalPageContent() {
               onConversationStart={() => setConversationActive(true)}
               onConversationEnd={() => setConversationActive(false)}
               onNavigateToEntries={() => router.push("/entries")}
+              onNavigateToProfiles={() => router.push("/chatbots")}
               entryDate={selectedDate}
             />
           )}
@@ -269,6 +254,7 @@ function EntryStatus({ selectedDate }: { selectedDate: string }) {
   }, [selectedDate]);
 
   let content = null;
+  
   if (status === "checking") {
     content = <p className="text-sm text-gray-400">Checking for entries on this date…</p>;
   } else if (status === "exists") {

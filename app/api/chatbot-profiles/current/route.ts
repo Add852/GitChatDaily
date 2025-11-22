@@ -6,9 +6,9 @@ import {
   setCurrentChatbotProfileId,
 } from "@/lib/storage";
 import {
-  getProfilesFromGitHub,
-  saveCurrentProfileIdToGitHub,
-} from "@/app/api/github/profile-helpers";
+  getChatbotsFromGitHub,
+  saveCurrentChatbotIdToGitHub,
+} from "@/app/api/github/chatbot-helpers";
 import { ChatbotProfile } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -20,39 +20,39 @@ export async function POST(req: NextRequest) {
 
     const { profileId } = await req.json();
     if (!profileId) {
-      return NextResponse.json({ error: "Profile ID is required" }, { status: 400 });
+      return NextResponse.json({ error: "Chatbot ID is required" }, { status: 400 });
     }
 
     const userId = session.user.githubId;
-    let profiles: ChatbotProfile[] = [];
+    let chatbots: ChatbotProfile[] = [];
 
     if (session.user.accessToken) {
       try {
-        profiles = await getProfilesFromGitHub(session.user.accessToken);
+        chatbots = await getChatbotsFromGitHub(session.user.accessToken);
       } catch (error) {
-        console.error("Error fetching profiles from GitHub while setting current:", error);
+        console.error("Error fetching chatbots from GitHub while setting current:", error);
       }
     }
 
-    if (profiles.length === 0) {
-      profiles = getAllChatbotProfiles(userId);
+    if (chatbots.length === 0) {
+      chatbots = getAllChatbotProfiles(userId);
     }
 
-    const profileExists =
+    const chatbotExists =
       profileId === "default" ||
-      profiles.some((profile) => profile.id === profileId);
+      chatbots.some((chatbot) => chatbot.id === profileId);
 
-    if (!profileExists) {
-      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    if (!chatbotExists) {
+      return NextResponse.json({ error: "Chatbot not found" }, { status: 404 });
     }
 
     setCurrentChatbotProfileId(userId, profileId);
 
     if (session.user.accessToken) {
       try {
-        await saveCurrentProfileIdToGitHub(session.user.accessToken, profileId);
+        await saveCurrentChatbotIdToGitHub(session.user.accessToken, profileId);
       } catch (error) {
-        console.error("Error saving current profile to GitHub:", error);
+        console.error("Error saving current chatbot to GitHub:", error);
       }
     }
 

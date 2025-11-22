@@ -39,7 +39,7 @@ Ollama should be running on `http://localhost:11434` by default.
 1. Create an account at [openrouter.ai](https://openrouter.ai)
 2. Navigate to [openrouter.ai/keys](https://openrouter.ai/keys) and generate an API key
 3. Add credits to your account (required for API usage)
-4. After completing the app setup, go to the **Profiles** page in the app to configure OpenRouter:
+4. After completing the app setup, go to the **Chatbots** page in the app to configure OpenRouter:
    - Select "OpenRouter (Cloud)" as your provider
    - Enter your API key
    - Choose a model from the available options
@@ -99,7 +99,7 @@ The application will be available at [http://localhost:3000](http://localhost:30
 - **GitHub Commit Sync** - Each entry creates a commit in a private repository
 - **Contribution Graph** - GitHub-style activity visualization with mood colors
 - **Mood Tracking** - 1-5 scale with emoji indicators
-- **Chatbot Profiles** - Customizable AI personalities
+- **Chatbots** - Customizable AI personalities
 - **Entry Management** - View, edit, and redo journal entries
 - **API Provider Selection** - Switch between Ollama and OpenRouter in settings
 - **Responsive Design** - Works on all devices
@@ -107,11 +107,11 @@ The application will be available at [http://localhost:3000](http://localhost:30
 ## Usage
 
 1. **Sign In**: Click "Sign in with GitHub" on the homepage
-2. **Configure API Provider**: Go to "Profiles" page to set up Ollama or OpenRouter
+2. **Configure API Provider**: Go to "Chatbots" page to set up Ollama or OpenRouter
 3. **Create Entry**: Navigate to "New Entry" and start a conversation
 4. **View Entries**: Browse all entries or click on the contribution graph
 5. **Edit Entries**: Click on any entry to view, edit, or redo the conversation
-6. **Customize Profiles**: Create custom chatbot personalities in the Profiles page
+6. **Customize Chatbots**: Create custom chatbot personalities in the Chatbots page
 
 ## Troubleshooting
 
@@ -165,7 +165,29 @@ For production deployment:
 
 ## Notes
 
-- Journal entries are currently stored in-memory (will be lost on server restart)
-- For production, replace `lib/storage.ts` with a proper database solution
-- The GitHub repository is created automatically as `gitchat-journal` in your account
+- Journal entries and chatbot profiles are stored in GitHub repositories (persistent storage)
+- The GitHub repository `gitchat-journal` is created automatically in your account
+- In-memory storage (`lib/storage.ts`) is used as a fallback cache only
+- All data persists across server restarts via GitHub storage
+
+## Production Deployment
+
+### Recommended Setup
+
+1. **Use OpenRouter for AI** - No infrastructure needed, just configure API key
+2. **Environment Variables** - Set all required variables on your hosting platform
+3. **GitHub OAuth** - Update callback URL to your production domain
+4. **NextAuth Secret** - Use a strong, randomly generated secret
+
+### Platform-Specific Notes
+
+**Vercel:**
+- Add environment variables in project settings
+- NextAuth works out of the box
+- No additional configuration needed
+
+**Other Platforms:**
+- Ensure Node.js 18+ is available
+- Set `NEXTAUTH_URL` to your production domain
+- Configure GitHub OAuth callback URL
 

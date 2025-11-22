@@ -9,72 +9,80 @@ A GitHub-themed daily conversational chatbot journaling system that syncs your j
 - 📝 Automated markdown journal entry summaries
 - 🔄 GitHub commit sync for each journal entry
 - 📊 GitHub-style contribution graph with mood colors
-- 🎭 Customizable chatbot profiles
+- 🎭 Customizable chatbots
 - 😊 Mood tracking (1-5 scale with emojis)
 - ✏️ Edit and overwrite journal entries
 - ☁️ Cloud AI support via OpenRouter (optional)
+- 📱 Fully responsive design with mobile support
 
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
-- **AI Provider (choose one):**
-  - **Ollama**: Install and run locally with llama3.2:3b model
-  - **OpenRouter**: Create an account at [openrouter.ai](https://openrouter.ai) and get an API key
+- Node.js 18+ and npm
+- GitHub account (for OAuth)
+- AI Provider (choose one):
+  - **Ollama** (local, free) - [Download](https://ollama.ai)
+  - **OpenRouter** (cloud) - [Sign up](https://openrouter.ai)
 
 ### Installation
 
-1. Install dependencies:
-```bash
-npm install
+1. **Clone and install:**
+   ```bash
+   git clone <repository-url>
+   cd GitChatDaily
+   npm install
+   ```
+
+2. **Set up environment variables:**
+   ```bash
+   cp .env.example .env.local
+   ```
+   Edit `.env.local` with your configuration (see [SETUP.md](./SETUP.md) for details).
+
+3. **Run development server:**
+   ```bash
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000)
+
+For detailed setup instructions, see [SETUP.md](./SETUP.md).
+
+## Project Structure
+
+```
+├── app/                    # Next.js app directory
+│   ├── api/               # API routes
+│   ├── chatbots/          # Chatbots management page
+│   ├── dashboard/        # Dashboard page
+│   ├── entries/           # Journal entries pages
+│   └── journal/           # New entry page
+├── components/            # React components
+├── lib/                   # Utility functions and helpers
+└── types/                 # TypeScript type definitions
 ```
 
-2. Set up environment variables:
-```bash
-cp .env.example .env.local
-```
+## Scripts
 
-3. Configure your environment variables:
-- `GITHUB_CLIENT_ID` - Your GitHub OAuth App Client ID
-- `GITHUB_CLIENT_SECRET` - Your GitHub OAuth App Client Secret
-- `NEXTAUTH_URL` - Your application URL (e.g., http://localhost:3000)
-- `NEXTAUTH_SECRET` - A random secret for NextAuth (generate with `openssl rand -base64 32`)
-- `OLLAMA_API_URL` - Your Ollama API URL (optional, default: http://localhost:11434)
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+- `npm run type-check` - TypeScript type checking
 
-4. Run the development server:
-```bash
-npm run dev
-```
+## Deployment
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+This project is ready for deployment on platforms like Vercel, Netlify, or any Node.js hosting service.
 
-## GitHub OAuth Setup
+**Production Checklist:**
+- [ ] Update `NEXTAUTH_URL` to production domain
+- [ ] Update GitHub OAuth callback URL
+- [ ] Configure environment variables on hosting platform
+- [ ] Set up AI provider (OpenRouter recommended for production)
+- [ ] Test authentication flow
+- [ ] Verify GitHub repository creation
 
-1. Go to GitHub Settings > Developer settings > OAuth Apps
-2. Create a new OAuth App
-3. Set Authorization callback URL to: `http://localhost:3000/api/auth/callback/github`
-4. Copy the Client ID and Client Secret to your `.env.local` file
-
-## AI Provider Setup
-
-### Option 1: Ollama (Local)
-
-1. Install Ollama from [ollama.ai](https://ollama.ai)
-2. Pull the llama3.2:3b model:
-```bash
-ollama pull llama3.2:3b
-```
-3. Start Ollama (it should run on http://localhost:11434 by default)
-
-### Option 2: OpenRouter (Cloud)
-
-1. Create an account at [openrouter.ai](https://openrouter.ai)
-2. Generate an API key from [openrouter.ai/keys](https://openrouter.ai/keys)
-3. Configure your API provider in the app settings (Profiles page)
-4. Select a model from the available OpenRouter models
-
-**Note:** You can switch between Ollama and OpenRouter anytime in the app settings. OpenRouter requires an API key and credits, while Ollama runs locally for free.
+**Note:** For production, OpenRouter is recommended over Ollama as it doesn't require infrastructure setup.
 
 ## License
 

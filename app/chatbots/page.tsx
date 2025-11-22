@@ -4,6 +4,8 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { Navbar } from "@/components/Navbar";
+import { CardSkeleton } from "@/components/Skeleton";
+import { Modal } from "@/components/Modal";
 import { ChatbotProfile, UserApiSettings, ApiStatus, OpenRouterModel, ApiProvider } from "@/types";
 import {
   DEFAULT_CHATBOT_PROFILE,
@@ -13,13 +15,13 @@ import {
   clampResponseCount,
 } from "@/lib/constants";
 
-export default function ProfilesPage() {
+export default function ChatbotsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [profiles, setProfiles] = useState<ChatbotProfile[]>([]);
+  const [chatbots, setChatbots] = useState<ChatbotProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<ChatbotProfile | null>(null);
+  const [editingChatbot, setEditingChatbot] = useState<ChatbotProfile | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -53,7 +55,7 @@ export default function ProfilesPage() {
 
   useEffect(() => {
     if (session) {
-      fetchProfiles();
+      fetchChatbots();
       fetchApiSettings();
       // Use cached status if available, otherwise check
       checkApiStatus(true);
@@ -87,15 +89,15 @@ export default function ProfilesPage() {
     };
   }, [isModelDropdownOpen]);
 
-  const fetchProfiles = async () => {
+  const fetchChatbots = async () => {
     try {
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
         const data = await response.json();
-        setProfiles(data);
+        setChatbots(data);
       }
     } catch (error) {
-      console.error("Error fetching profiles:", error);
+      console.error("Error fetching chatbots:", error);
     } finally {
       setLoading(false);
     }
@@ -110,27 +112,27 @@ export default function ProfilesPage() {
       Number.isNaN(parsedCount) ? DEFAULT_RESPONSE_COUNT : parsedCount
     );
 
-    const profile: ChatbotProfile = {
-      id: editingProfile?.id || `profile-${Date.now()}`,
+    const chatbot: ChatbotProfile = {
+      id: editingChatbot?.id || `chatbot-${Date.now()}`,
       name: formData.name,
       description: formData.description,
       systemPrompt: formData.systemPrompt,
       responseCount,
-      isCurrent: editingProfile?.isCurrent ?? false,
-      createdAt: editingProfile?.createdAt || new Date().toISOString(),
+      isCurrent: editingChatbot?.isCurrent ?? false,
+      createdAt: editingChatbot?.createdAt || new Date().toISOString(),
     };
 
     try {
       const response = await fetch("/api/chatbot-profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profile),
+        body: JSON.stringify(chatbot),
       });
 
       if (response.ok) {
-        await fetchProfiles();
+        await fetchChatbots();
         setShowCreateForm(false);
-        setEditingProfile(null);
+        setEditingChatbot(null);
         setFormData({
           name: "",
           description: "",
@@ -139,72 +141,83 @@ export default function ProfilesPage() {
         });
       }
     } catch (error) {
-      console.error("Error saving profile:", error);
-      alert("Failed to save profile. Please try again.");
+      console.error("Error saving chatbot:", error);
+      alert("Failed to save chatbot. Please try again.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleEdit = (profile: ChatbotProfile) => {
-    setEditingProfile(profile);
+  const handleCloseChatbotForm = () => {
+    setShowCreateForm(false);
+    setEditingChatbot(null);
     setFormData({
-      name: profile.name,
-      description: profile.description,
-      systemPrompt: profile.systemPrompt,
-      responseCountInput: (profile.responseCount ?? DEFAULT_RESPONSE_COUNT).toString(),
+      name: "",
+      description: "",
+      systemPrompt: "",
+      responseCountInput: DEFAULT_RESPONSE_COUNT.toString(),
+    });
+  };
+
+  const handleEdit = (chatbot: ChatbotProfile) => {
+    setEditingChatbot(chatbot);
+    setFormData({
+      name: chatbot.name,
+      description: chatbot.description,
+      systemPrompt: chatbot.systemPrompt,
+      responseCountInput: (chatbot.responseCount ?? DEFAULT_RESPONSE_COUNT).toString(),
     });
     setShowCreateForm(true);
   };
 
-  const handleSetCurrent = async (profile: ChatbotProfile) => {
-    setSettingCurrentId(profile.id);
+  const handleSetCurrent = async (chatbot: ChatbotProfile) => {
+    setSettingCurrentId(chatbot.id);
     try {
       const response = await fetch("/api/chatbot-profiles/current", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId: profile.id }),
+        body: JSON.stringify({ profileId: chatbot.id }),
       });
 
       if (response.ok) {
-        await fetchProfiles();
+        await fetchChatbots();
       } else {
         const error = await response.json();
-        alert(error.error || "Failed to set current profile");
+        alert(error.error || "Failed to set current chatbot");
       }
     } catch (error) {
-      console.error("Error setting current profile:", error);
-      alert("Failed to set current profile. Please try again.");
+      console.error("Error setting current chatbot:", error);
+      alert("Failed to set current chatbot. Please try again.");
     } finally {
       setSettingCurrentId(null);
     }
   };
 
-  const handleDelete = async (profile: ChatbotProfile) => {
-    // Don't allow deleting the default profile
-    if (profile.id === "default") {
-      alert("Cannot delete the default profile");
+  const handleDelete = async (chatbot: ChatbotProfile) => {
+    // Don't allow deleting the default chatbot
+    if (chatbot.id === "default") {
+      alert("Cannot delete the default chatbot");
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete "${profile.name}"? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete "${chatbot.name}"? This action cannot be undone.`)) {
       return;
     }
 
     try {
-      const response = await fetch(`/api/chatbot-profiles?id=${profile.id}`, {
+      const response = await fetch(`/api/chatbot-profiles?id=${chatbot.id}`, {
         method: "DELETE",
       });
 
       if (response.ok) {
-        await fetchProfiles();
+        await fetchChatbots();
       } else {
         const error = await response.json();
-        alert(error.error || "Failed to delete profile");
+        alert(error.error || "Failed to delete chatbot");
       }
     } catch (error) {
-      console.error("Error deleting profile:", error);
-      alert("Failed to delete profile. Please try again.");
+      console.error("Error deleting chatbot:", error);
+      alert("Failed to delete chatbot. Please try again.");
     }
   };
 
@@ -293,36 +306,40 @@ export default function ProfilesPage() {
     }
   };
 
-  if (status === "loading" || loading) {
-    return (
-      <div className="min-h-screen bg-github-dark">
-        <Navbar />
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-gray-400">Loading...</div>
-        </div>
-      </div>
-    );
-  }
+  const handleCloseApiSettings = () => {
+    setShowApiSettings(false);
+    fetchApiSettings(); // Reset to saved settings
+  };
 
   if (!session) {
+    if (status === "loading") {
+      return (
+        <div className="min-h-screen bg-github-dark">
+          <Navbar />
+          <div className="flex items-center justify-center h-screen">
+            <div className="text-gray-400">Loading...</div>
+          </div>
+        </div>
+      );
+    }
     return null;
   }
 
-  const isDefaultLocked = editingProfile?.id === "default";
+  const isDefaultLocked = editingChatbot?.id === "default";
 
   return (
     <div className="min-h-screen bg-github-dark">
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Chatbot Profiles</h1>
-            <p className="text-gray-400">Customize your AI companion&rsquo;s personality</p>
-            <p className="text-sm text-gray-500 mt-1">
-              Only the current profile is used in conversations. Switch it below when you&rsquo;re ready for a new persona.
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-2">Chatbots</h1>
+            <p className="text-sm sm:text-base text-gray-400">Customize your AI companion&rsquo;s personality</p>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1">
+              Only the current chatbot is used in conversations. Switch it below when you&rsquo;re ready for a new persona.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
                 setShowApiSettings(!showApiSettings);
@@ -332,14 +349,14 @@ export default function ProfilesPage() {
                   // User can manually refresh if needed
                 }
               }}
-              className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg transition-colors border border-github-dark-border"
+              className="px-3 sm:px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-xs sm:text-sm transition-colors border border-github-dark-border"
             >
               API Settings
             </button>
             <button
               onClick={() => {
                 setShowCreateForm(true);
-                setEditingProfile(null);
+                setEditingChatbot(null);
                 setFormData({
                   name: "",
                   description: "",
@@ -349,34 +366,36 @@ export default function ProfilesPage() {
                   ).toString(),
                 });
               }}
-              className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors"
+              className="px-3 sm:px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-xs sm:text-sm transition-colors"
             >
-              Create Profile
+              Create Chatbot
             </button>
           </div>
         </div>
 
         {/* API Status Indicator */}
         {apiStatus && (
-          <div className={`mb-6 p-4 rounded-lg border ${
+          <div className={`mb-4 sm:mb-6 p-3 sm:p-4 rounded-lg border ${
             apiStatus.available
               ? "bg-green-900/20 border-green-700/50"
               : "bg-red-900/20 border-red-700/50"
           }`}>
-            <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${
-                apiStatus.available ? "bg-green-500" : "bg-red-500"
-              }`} />
-              <div className="flex-1">
-                <div className="font-semibold">
-                  {apiStatus.available
-                    ? `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Available`
-                    : `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Unavailable`}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 font-semibold text-sm sm:text-base">
+                  <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full flex-shrink-0 ${
+                    apiStatus.available ? "bg-green-500" : "bg-red-500"
+                  }`} />
+                  <span>
+                    {apiStatus.available
+                      ? `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Available`
+                      : `${apiStatus.provider === "openrouter" ? "OpenRouter" : "Ollama"} API Unavailable`}
+                  </span>
                 </div>
                 {apiStatus.error && (
-                  <div className="text-sm text-gray-400 mt-2">
+                  <div className="text-xs sm:text-sm text-gray-400 mt-2">
                     <div className="font-semibold mb-1">Error Details:</div>
-                    <div className="whitespace-pre-wrap font-mono text-xs leading-relaxed bg-github-dark-hover p-2 rounded border border-github-dark-border">
+                    <div className="whitespace-pre-wrap font-mono text-[10px] sm:text-xs leading-relaxed bg-github-dark-hover p-2 rounded border border-github-dark-border overflow-x-auto">
                       {apiStatus.error}
                     </div>
                   </div>
@@ -390,7 +409,7 @@ export default function ProfilesPage() {
               <button
                 onClick={() => checkApiStatus(false)}
                 disabled={checkingStatus}
-                className="px-3 py-1 text-sm bg-github-dark-hover hover:bg-github-dark-border rounded border border-github-dark-border disabled:opacity-60"
+                className="px-3 py-1 text-xs sm:text-sm bg-github-dark-hover hover:bg-github-dark-border rounded border border-github-dark-border disabled:opacity-60 flex-shrink-0"
               >
                 {checkingStatus ? "Checking..." : "Refresh"}
               </button>
@@ -398,11 +417,16 @@ export default function ProfilesPage() {
           </div>
         )}
 
-        {/* API Settings Form */}
-        {showApiSettings && (
-          <div className="bg-github-dark border border-github-dark-border rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-semibold mb-4">API Settings</h2>
-            <div className="space-y-4">
+        {/* API Settings Modal */}
+        <Modal
+          isOpen={showApiSettings}
+          onClose={handleCloseApiSettings}
+          title="API Settings"
+          size="md"
+        >
+          <div className="flex flex-col h-full">
+            <div className="flex-1 min-h-0 overflow-y-auto -mx-4 sm:-mx-6 px-4 sm:px-6">
+              <div className="space-y-3 sm:space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">API Provider</label>
                 <select
@@ -499,7 +523,7 @@ export default function ProfilesPage() {
                           </svg>
                         </button>
                         {isModelDropdownOpen && (
-                          <div className="absolute z-10 w-full mt-1 bg-github-dark border border-github-dark-border rounded-lg shadow-lg max-h-96 overflow-hidden flex flex-col">
+                          <div className="absolute z-50 w-full mt-1 bg-github-dark border border-github-dark-border rounded-lg shadow-lg max-h-96 overflow-hidden flex flex-col">
                             <div className="p-2 border-b border-github-dark-border">
                               <input
                                 type="text"
@@ -602,42 +626,43 @@ export default function ProfilesPage() {
                   </div>
                 </>
               )}
-
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSaveApiSettings}
-                  disabled={savingApiSettings}
-                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-wait"
-                >
-                  {savingApiSettings ? "Saving..." : "Save Settings"}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowApiSettings(false);
-                    fetchApiSettings(); // Reset to saved settings
-                  }}
-                  className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg transition-colors border border-github-dark-border"
-                >
-                  Cancel
-                </button>
               </div>
             </div>
-          </div>
-        )}
-
-        {showCreateForm && (
-          <div className="bg-github-dark border border-github-dark-border rounded-lg p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">
-                {editingProfile ? "Profile Details" : "Create New Profile"}
-              </h2>
-              {isDefaultLocked && (
-                <span className="text-xs text-gray-400 uppercase tracking-wide">
-                  Default profile is read-only
-                </span>
-              )}
+            <div className="flex-shrink-0 flex flex-wrap gap-2 pt-4 border-t border-github-dark-border mt-4">
+              <button
+                onClick={handleSaveApiSettings}
+                disabled={savingApiSettings}
+                className="px-3 sm:px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-xs sm:text-sm transition-colors disabled:opacity-60 disabled:cursor-wait"
+              >
+                {savingApiSettings ? "Saving..." : "Save Settings"}
+              </button>
+              <button
+                onClick={handleCloseApiSettings}
+                className="px-3 sm:px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-xs sm:text-sm transition-colors border border-github-dark-border"
+              >
+                Cancel
+              </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+          </div>
+        </Modal>
+
+        {/* Create/Edit Chatbot Modal */}
+        <Modal
+          isOpen={showCreateForm}
+          onClose={handleCloseChatbotForm}
+          title={editingChatbot ? "Edit Chatbot" : "Create New Chatbot"}
+          size="lg"
+        >
+          {isDefaultLocked && (
+            <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
+              <p className="text-xs text-yellow-400 uppercase tracking-wide">
+                Default chatbot is read-only
+              </p>
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="flex flex-col h-full">
+            <div className="flex-1 min-h-0 overflow-y-auto -mx-4 sm:-mx-6 px-4 sm:px-6">
+              <div className="space-y-3 sm:space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Name</label>
                 <input
@@ -707,79 +732,84 @@ export default function ProfilesPage() {
                   Includes the AI&rsquo;s initial greeting and final wrap-up. Choose between {RESPONSE_COUNT_MIN} and {RESPONSE_COUNT_MAX} responses.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={isSaving || isDefaultLocked}
-                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-wait"
-                >
-                  {isDefaultLocked ? "Read Only" : isSaving ? "Saving..." : "Save"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateForm(false);
-                    setEditingProfile(null);
-                  }}
-                  className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg transition-colors border border-github-dark-border"
-                >
-                  Cancel
-                </button>
               </div>
-            </form>
-          </div>
-        )}
+            </div>
+            <div className="flex-shrink-0 flex flex-wrap gap-2 pt-4 border-t border-github-dark-border mt-4">
+              <button
+                type="submit"
+                disabled={isSaving || isDefaultLocked}
+                className="px-3 sm:px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-xs sm:text-sm transition-colors disabled:opacity-60 disabled:cursor-wait"
+              >
+                {isDefaultLocked ? "Read Only" : isSaving ? "Saving..." : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={handleCloseChatbotForm}
+                className="px-3 sm:px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-xs sm:text-sm transition-colors border border-github-dark-border"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </Modal>
 
-        <div className="space-y-4">
-          {profiles.map((profile) => (
+        <div className="space-y-3 sm:space-y-4">
+          {loading ? (
+            <>
+              {Array.from({ length: 2 }).map((_, i) => (
+                <CardSkeleton key={i} />
+              ))}
+            </>
+          ) : (
+          chatbots.map((chatbot) => (
             <div
-              key={profile.id}
-              className="bg-github-dark border border-github-dark-border rounded-lg p-6"
+              key={chatbot.id}
+              className="bg-github-dark border border-github-dark-border rounded-lg p-4 sm:p-6"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h3 className="text-xl font-semibold">{profile.name}</h3>
-                    {profile.isCurrent && (
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <h3 className="text-lg sm:text-xl font-semibold">{chatbot.name}</h3>
+                    {chatbot.isCurrent && (
                       <span className="px-2 py-1 bg-github-green/20 text-github-green text-xs rounded">
                         Current
                       </span>
                     )}
                   </div>
-                  <p className="text-gray-400 mb-3">{profile.description}</p>
-                  <div className="bg-github-dark-hover rounded p-3">
-                    <p className="text-sm text-gray-300 font-mono whitespace-pre-wrap">
-                      {(profile.systemPrompt ?? "").substring(0, 200)}
-                      {(profile.systemPrompt ?? "").length > 200 && "..."}
+                  <p className="text-sm sm:text-base text-gray-400 mb-2 sm:mb-3">{chatbot.description}</p>
+                  <div className="bg-github-dark-hover rounded p-2 sm:p-3">
+                    <p className="text-xs sm:text-sm text-gray-300 font-mono whitespace-pre-wrap break-words">
+                      {(chatbot.systemPrompt ?? "").substring(0, 200)}
+                      {(chatbot.systemPrompt ?? "").length > 200 && "..."}
                     </p>
                   </div>
-                  <p className="text-xs text-gray-500 mt-3">
+                  <p className="text-xs text-gray-500 mt-2 sm:mt-3">
                     Responses per conversation:{" "}
                     <span className="text-white font-semibold">
-                      {profile.responseCount ?? DEFAULT_RESPONSE_COUNT}
+                      {chatbot.responseCount ?? DEFAULT_RESPONSE_COUNT}
                     </span>
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  {!profile.isCurrent && (
+                <div className="flex flex-wrap gap-2 flex-shrink-0">
+                  {!chatbot.isCurrent && (
                     <button
-                      onClick={() => handleSetCurrent(profile)}
-                      disabled={settingCurrentId === profile.id}
-                      className="px-4 py-2 bg-github-green/20 hover:bg-github-green/30 text-github-green rounded-lg text-sm transition-colors border border-github-green/40 disabled:opacity-60 disabled:cursor-wait"
+                      onClick={() => handleSetCurrent(chatbot)}
+                      disabled={settingCurrentId === chatbot.id}
+                      className="px-3 sm:px-4 py-1.5 sm:py-2 bg-github-green/20 hover:bg-github-green/30 text-github-green rounded-lg text-xs sm:text-sm transition-colors border border-github-green/40 disabled:opacity-60 disabled:cursor-wait"
                     >
-                      {settingCurrentId === profile.id ? "Setting..." : "Set as current"}
+                      {settingCurrentId === chatbot.id ? "Setting..." : "Set as current"}
                     </button>
                   )}
                   <button
-                    onClick={() => handleEdit(profile)}
-                    className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-sm transition-colors border border-github-dark-border"
+                    onClick={() => handleEdit(chatbot)}
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg text-xs sm:text-sm transition-colors border border-github-dark-border"
                   >
                     Edit
                   </button>
-                  {profile.id !== "default" && (
+                  {chatbot.id !== "default" && (
                     <button
-                      onClick={() => handleDelete(profile)}
-                      className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors border border-red-600/30"
+                      onClick={() => handleDelete(chatbot)}
+                      className="px-3 sm:px-4 py-1.5 sm:py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-xs sm:text-sm transition-colors border border-red-600/30"
                     >
                       Delete
                     </button>
@@ -787,7 +817,8 @@ export default function ProfilesPage() {
                 </div>
               </div>
             </div>
-          ))}
+          ))
+          )}
         </div>
       </main>
     </div>

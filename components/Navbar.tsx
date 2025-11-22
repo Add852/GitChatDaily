@@ -2,101 +2,454 @@
 
 import { signIn, signOut, useSession } from "next-auth/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 
 export function Navbar() {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        profileDropdownRef.current &&
+        !profileDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsProfileDropdownOpen(false);
+      }
+    };
+
+    if (isProfileDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isProfileDropdownOpen]);
+
+  const handleSignOut = () => {
+    signOut();
+    setIsProfileDropdownOpen(false);
+  };
+
+  const handleVisitGitHub = () => {
+    if (session?.user) {
+      window.open(
+        `https://github.com/${(session.user as any)?.username || session.user?.name || ""}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+      setIsProfileDropdownOpen(false);
+    }
+  };
+
+  const isActive = (path: string) => pathname === path;
 
   return (
-    <nav className="bg-github-dark border-b border-github-dark-border">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            <Link href="/" className="flex items-center space-x-2">
-              <img src="/icons/app-icon.svg" alt="GitChat Journal logo" className="w-10 h-10" />
-              <span className="text-xl font-semibold">GitChat Journal</span>
-            </Link>
-          </div>
-          <div className="flex items-center space-x-4">
-            {session ? (
-              <>
-                <Link
-                  href="/dashboard"
-                  className={`px-3 py-2 rounded-md text-sm font-medium ${
-                    pathname === "/dashboard"
-                      ? "bg-github-dark-hover text-white"
-                      : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
-                  }`}
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/journal"
-                  className={`px-3 py-2 rounded-md text-sm font-medium ${
-                    pathname === "/journal"
-                      ? "bg-github-dark-hover text-white"
-                      : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
-                  }`}
-                >
-                  New Entry
-                </Link>
-                <Link
-                  href="/entries"
-                  className={`px-3 py-2 rounded-md text-sm font-medium ${
-                    pathname === "/entries"
-                      ? "bg-github-dark-hover text-white"
-                      : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
-                  }`}
-                >
-                  Entries
-                </Link>
-                <Link
-                  href="/profiles"
-                  className={`px-3 py-2 rounded-md text-sm font-medium ${
-                    pathname === "/profiles"
-                      ? "bg-github-dark-hover text-white"
-                      : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
-                  }`}
-                >
-                  Profiles
-                </Link>
-                <div className="flex items-center space-x-3">
-                  <a
-                    href={`https://github.com/${(session.user as any)?.username || session.user?.name || ""}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:opacity-80 transition-opacity"
+    <>
+      {/* Desktop Top Navbar */}
+      <nav className="hidden md:block bg-github-dark border-b border-github-dark-border sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center min-w-0 flex-1">
+              <Link href="/" className="flex items-center space-x-2 min-w-0">
+                <img
+                  src="/icons/app-icon.svg"
+                  alt="GitChat Journal logo"
+                  className="w-8 h-8 lg:w-10 lg:h-10 flex-shrink-0"
+                />
+                <span className="text-base lg:text-xl font-semibold truncate">
+                  GitChat Journal
+                </span>
+              </Link>
+            </div>
+
+            {/* Desktop Navigation */}
+            <div className="flex items-center space-x-3 lg:space-x-4 flex-shrink-0">
+              {session ? (
+                <>
+                  <Link
+                    href="/dashboard"
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isActive("/dashboard")
+                        ? "bg-github-dark-hover text-white"
+                        : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
+                    }`}
                   >
-                    <img
-                      src={session.user?.image || ""}
-                      alt={session.user?.name || ""}
-                      className="w-8 h-8 rounded-full cursor-pointer"
-                      title={`View ${(session.user as any)?.username || session.user?.name}'s GitHub profile`}
-                    />
-                  </a>
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                      />
+                    </svg>
+                    Dashboard
+                  </Link>
+                  <Link
+                    href="/journal"
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isActive("/journal")
+                        ? "bg-github-dark-hover text-white"
+                        : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
+                    }`}
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 4v16m8-8H4"
+                      />
+                    </svg>
+                    New Entry
+                  </Link>
+                  <Link
+                    href="/entries"
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isActive("/entries")
+                        ? "bg-github-dark-hover text-white"
+                        : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
+                    }`}
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                    Entries
+                  </Link>
+                  <Link
+                    href="/chatbots"
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isActive("/chatbots")
+                        ? "bg-github-dark-hover text-white"
+                        : "text-gray-300 hover:bg-github-dark-hover hover:text-white"
+                    }`}
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                      />
+                    </svg>
+                    Chatbots
+                  </Link>
+                  <div className="relative" ref={profileDropdownRef}>
+                    <button
+                      onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+                      className="flex items-center focus:outline-none"
+                    >
+                      <img
+                        src={session.user?.image || ""}
+                        alt={session.user?.name || ""}
+                        className="w-8 h-8 rounded-full cursor-pointer hover:ring-2 hover:ring-github-green transition-all"
+                        title="Profile menu"
+                      />
+                    </button>
+                    {isProfileDropdownOpen && (
+                      <div className="absolute right-0 mt-2 w-48 bg-github-dark border border-github-dark-border rounded-lg shadow-lg z-50 overflow-hidden">
+                        <button
+                          onClick={handleVisitGitHub}
+                          className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-github-dark-hover hover:text-white transition-colors flex items-center gap-2"
+                        >
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                            />
+                          </svg>
+                          Visit GitHub Profile
+                        </button>
+                        <div className="border-t border-github-dark-border"></div>
+                        <button
+                          onClick={handleSignOut}
+                          className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-github-dark-hover hover:text-white transition-colors flex items-center gap-2"
+                        >
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                            />
+                          </svg>
+                          Log out
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                pathname !== "/" && (
                   <button
-                    onClick={() => signOut()}
-                    className="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-github-dark-hover hover:text-white"
+                    onClick={() => signIn("github")}
+                    className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-md text-sm font-medium transition-colors"
                   >
-                    Sign Out
+                    Sign in with GitHub
                   </button>
-                </div>
-              </>
-            ) : (
-              pathname !== "/" && (
-                <button
-                  onClick={() => signIn("github")}
-                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-md text-sm font-medium transition-colors"
-                >
-                  Sign in with GitHub
-                </button>
-              )
-            )}
+                )
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+
+      {/* Mobile Bottom Navbar */}
+      {session && (
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-github-dark border-t border-github-dark-border z-[60] safe-area-inset-bottom">
+          <div className="flex items-center justify-around h-16 px-2">
+            <Link
+              href="/dashboard"
+              className={`flex flex-col items-center justify-center flex-1 h-full min-w-0 px-2 transition-colors ${
+                isActive("/dashboard")
+                  ? "text-github-green"
+                  : "text-gray-400 active:text-white"
+              }`}
+            >
+              <svg
+                className="w-6 h-6 mb-1"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                />
+              </svg>
+              <span className="text-[10px] font-medium">Dashboard</span>
+            </Link>
+            <Link
+              href="/entries"
+              className={`flex flex-col items-center justify-center flex-1 h-full min-w-0 px-2 transition-colors ${
+                isActive("/entries")
+                  ? "text-github-green"
+                  : "text-gray-400 active:text-white"
+              }`}
+            >
+              <svg
+                className="w-6 h-6 mb-1"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+              <span className="text-[10px] font-medium">Entries</span>
+            </Link>
+            <Link
+              href="/chatbots"
+              className={`flex flex-col items-center justify-center flex-1 h-full min-w-0 px-2 transition-colors ${
+                isActive("/chatbots")
+                  ? "text-github-green"
+                  : "text-gray-400 active:text-white"
+              }`}
+            >
+              <svg
+                className="w-6 h-6 mb-1"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                />
+              </svg>
+              <span className="text-[10px] font-medium">Chatbots</span>
+            </Link>
+            <div className="relative flex flex-col items-center justify-center flex-1 h-full min-w-0 px-2">
+              <button
+                onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+                className="flex flex-col items-center justify-center"
+              >
+                <img
+                  src={session.user?.image || ""}
+                  alt={session.user?.name || ""}
+                  className={`w-6 h-6 rounded-full mb-1 transition-all ${
+                    isProfileDropdownOpen ? "ring-2 ring-github-green" : ""
+                  }`}
+                />
+                <span className="text-[10px] font-medium text-gray-400">Profile</span>
+              </button>
+              {isProfileDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 bg-black/50 z-[45]"
+                    onClick={() => setIsProfileDropdownOpen(false)}
+                    onTouchEnd={(e) => {
+                      // Only close if the touch didn't start on the dropdown
+                      if (e.target === e.currentTarget) {
+                        setIsProfileDropdownOpen(false);
+                      }
+                    }}
+                  />
+                  <div 
+                    className="fixed bottom-20 right-4 w-[calc(100vw-2rem)] max-w-48 bg-github-dark border border-github-dark-border rounded-lg shadow-lg z-[50] overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleVisitGitHub();
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleVisitGitHub();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-github-dark-hover active:bg-github-dark-hover hover:text-white transition-colors flex items-center gap-2 touch-manipulation"
+                    >
+                      <svg
+                        className="w-4 h-4 flex-shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                        />
+                      </svg>
+                      <span className="truncate">Visit GitHub Profile</span>
+                    </button>
+                    <div className="border-t border-github-dark-border"></div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSignOut();
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSignOut();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-300 hover:bg-github-dark-hover active:bg-github-dark-hover hover:text-white transition-colors flex items-center gap-2 touch-manipulation"
+                    >
+                      <svg
+                        className="w-4 h-4 flex-shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                        />
+                      </svg>
+                      <span className="truncate">Log out</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </nav>
+      )}
+
+      {/* Mobile Floating Add Button - Hidden on journal page */}
+      {session && pathname !== "/journal" && (
+        <Link
+          href="/journal"
+          className="md:hidden fixed bottom-20 right-4 z-[55] w-14 h-14 bg-github-green hover:bg-github-green-hover text-white rounded-full shadow-lg flex items-center justify-center transition-all active:scale-95"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+        </Link>
+      )}
+    </>
   );
 }
-

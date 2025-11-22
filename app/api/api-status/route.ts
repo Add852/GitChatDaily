@@ -13,21 +13,43 @@ interface ParsedError {
 }
 
 function parseError(error: any, provider: "ollama" | "openrouter", context?: string): ParsedError {
+  const errorMessage = typeof error === "string" ? error : error?.message || "";
+  const errorLower = errorMessage.toLowerCase();
+
   // Network errors
-  if (error.name === "AbortError" || error.message?.includes("timeout")) {
+  if (error.name === "AbortError" || errorLower.includes("timeout") || errorLower.includes("timed out")) {
     return {
       message: `Connection timeout: Unable to reach ${provider === "openrouter" ? "OpenRouter" : "Ollama"} API`,
-      details: "The API did not respond within the expected time. Check your network connection and API URL.",
+      details: provider === "ollama"
+        ? "Ollama did not respond within 5 seconds. Make sure:\n1. Ollama is running on your computer\n2. The API URL is correct (default: http://localhost:11434)\n3. Ollama is not blocked by firewall or antivirus"
+        : "The API did not respond within the expected time. Check your network connection and API URL.",
       type: "network",
     };
   }
 
-  if (error.message?.includes("Failed to fetch") || error.message?.includes("ECONNREFUSED")) {
+  if (errorLower.includes("failed to fetch") || 
+      errorLower.includes("econnrefused") || 
+      errorLower.includes("connection refused") ||
+      errorLower.includes("networkerror") ||
+      errorLower.includes("network error") ||
+      errorLower.includes("err_connection_refused") ||
+      errorLower.includes("err_network_changed")) {
     return {
-      message: `Connection failed: Cannot connect to ${provider === "openrouter" ? "OpenRouter" : "Ollama"} API`,
+      message: `Cannot connect to ${provider === "openrouter" ? "OpenRouter" : "Ollama"} API`,
       details: provider === "ollama" 
-        ? "Make sure Ollama is running and the API URL is correct."
+        ? "Unable to reach Ollama. Please check:\n1. Is Ollama running? (Open Ollama app or run 'ollama serve')\n2. Is the API URL correct? (Check Settings → API Settings → Ollama API URL)\n3. Default URL: http://localhost:11434\n4. If using a different port, make sure it matches your Ollama configuration"
         : "Check your internet connection and try again.",
+      type: "network",
+    };
+  }
+
+  // CORS errors
+  if (errorLower.includes("cors") || errorLower.includes("cross-origin")) {
+    return {
+      message: "CORS error: Cross-origin request blocked",
+      details: provider === "ollama"
+        ? "Ollama is blocking cross-origin requests. Make sure Ollama is configured to allow requests from this application."
+        : "The API is blocking requests from this origin.",
       type: "network",
     };
   }
@@ -38,7 +60,20 @@ function parseError(error: any, provider: "ollama" | "openrouter", context?: str
       const parsed = JSON.parse(error);
       return parseJsonError(parsed, provider);
     } catch {
-      // Not JSON, continue with string parsing
+      // Not JSON, check if it's an HTTP status code string
+      if (error.match(/^HTTP \d+$/)) {
+        const statusCode = parseInt(error.match(/\d+/)?.[0] || "0", 10);
+        return {
+          message: `Ollama API returned error ${statusCode}`,
+          details: statusCode === 404
+            ? "The API endpoint was not found. Check that your Ollama API URL is correct."
+            : statusCode === 500
+            ? "Ollama server encountered an error. Try restarting Ollama."
+            : `HTTP error ${statusCode}. Please check your Ollama configuration.`,
+          type: "api",
+        };
+      }
+      // Continue with string parsing below
     }
   }
 
@@ -47,10 +82,37 @@ function parseError(error: any, provider: "ollama" | "openrouter", context?: str
     return parseJsonError(error, provider);
   }
 
+  // Handle string errors that weren't JSON
+  if (typeof error === "string" && error.trim()) {
+    // If it looks like a technical error message, provide a user-friendly one
+    if (errorLower.includes("getaddrinfo") || errorLower.includes("enotfound")) {
+      return {
+        message: "Cannot resolve hostname",
+        details: provider === "ollama"
+          ? "The Ollama API URL hostname cannot be resolved. Check:\n1. Is the URL correct? (e.g., http://localhost:11434)\n2. If using a hostname, make sure it's accessible\n3. Try using 'localhost' or '127.0.0.1' instead"
+          : "The API hostname cannot be resolved. Check your internet connection.",
+        type: "network",
+      };
+    }
+    
+    // Generic string error - provide context
+    return {
+      message: "Connection error",
+      details: provider === "ollama"
+        ? `Unable to connect to Ollama: ${error}\n\nMake sure Ollama is running and the API URL is correct.`
+        : error,
+      type: "network",
+    };
+  }
+
   // Default error message
   return {
-    message: error?.message || "Unknown error occurred",
-    details: context || "Please check your API configuration and try again.",
+    message: provider === "ollama" 
+      ? "Unable to connect to Ollama"
+      : "Unknown error occurred",
+    details: context || (provider === "ollama"
+      ? "Please check:\n1. Ollama is running\n2. API URL is correct (Settings → API Settings)\n3. No firewall is blocking the connection"
+      : "Please check your API configuration and try again."),
     type: "unknown",
   };
 }
@@ -118,17 +180,63 @@ function parseJsonError(error: any, provider: "ollama" | "openrouter"): ParsedEr
 
   // Ollama error format
   if (error.error) {
+    const ollamaError = typeof error.error === "string" ? error.error : error.error.message || JSON.stringify(error.error);
+    const errorLower = ollamaError.toLowerCase();
+    
+    // Provide user-friendly messages for common Ollama errors
+    if (errorLower.includes("model") && errorLower.includes("not found")) {
+      return {
+        message: "Model not found",
+        details: "The specified model is not installed in Ollama.\n\nTo install it, run:\nollama pull <model-name>\n\nOr check your model name in Settings → API Settings.",
+        type: "configuration",
+      };
+    }
+    
+    if (errorLower.includes("connection") || errorLower.includes("refused")) {
+      return {
+        message: "Cannot connect to Ollama",
+        details: "Make sure Ollama is running and the API URL is correct.",
+        type: "network",
+      };
+    }
+    
     return {
-      message: `Ollama API error: ${error.error}`,
-      details: "Check that Ollama is running and the model name is correct.",
+      message: "Ollama API error",
+      details: `${ollamaError}\n\nCheck that Ollama is running and configured correctly.`,
       type: "api",
     };
   }
 
-  // Generic error message
+  // Handle HTTP status codes
+  if (error.status) {
+    const status = error.status;
+    if (status === 404) {
+      return {
+        message: "API endpoint not found",
+        details: provider === "ollama"
+          ? "The Ollama API endpoint was not found. Check that:\n1. Your API URL is correct\n2. Ollama is running\n3. The URL includes the correct port (default: 11434)"
+          : "The API endpoint was not found. Check your API configuration.",
+        type: "configuration",
+      };
+    }
+    if (status === 500) {
+      return {
+        message: "Server error",
+        details: provider === "ollama"
+          ? "Ollama server encountered an error. Try:\n1. Restarting Ollama\n2. Checking Ollama logs\n3. Verifying your model is installed correctly"
+          : "The API server encountered an error. Please try again later.",
+        type: "api",
+      };
+    }
+  }
+
+  // Generic error message - avoid showing raw JSON
+  const errorMsg = error.message || "API error occurred";
   return {
-    message: error.message || "API error occurred",
-    details: JSON.stringify(error, null, 2).substring(0, 200),
+    message: errorMsg,
+    details: provider === "ollama"
+      ? "Please check your Ollama configuration and ensure Ollama is running."
+      : "Please check your API configuration and try again.",
     type: "api",
   };
 }
@@ -154,14 +262,20 @@ async function checkOllamaStatus(apiUrl: string, model: string): Promise<ApiStat
     });
 
     if (!response.ok) {
-      let errorText = "";
+      let errorData: any = { status: response.status };
       try {
-        errorText = await response.text();
+        const errorText = await response.text();
+        try {
+          errorData = { ...JSON.parse(errorText), status: response.status };
+        } catch {
+          // Not JSON, treat as plain text
+          errorData = { message: errorText, status: response.status };
+        }
       } catch {
-        errorText = `HTTP ${response.status}`;
+        errorData = { message: `HTTP ${response.status}`, status: response.status };
       }
 
-      const parsed = parseError(errorText, "ollama", `Ollama API returned status ${response.status}`);
+      const parsed = parseError(errorData, "ollama");
       return {
         available: false,
         provider: "ollama",

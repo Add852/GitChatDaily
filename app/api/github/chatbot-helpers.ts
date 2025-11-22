@@ -2,7 +2,7 @@ import { Octokit } from "@octokit/rest";
 import { ChatbotProfile } from "@/types";
 
 const REPO_NAME = "gitchat-journal";
-const CURRENT_PROFILE_PATH = "profiles/current.json";
+const CURRENT_CHATBOT_PATH = "chatbots/current.json";
 
 async function ensureRepoExists(octokit: Octokit, owner: string) {
   try {
@@ -21,7 +21,7 @@ async function ensureRepoExists(octokit: Octokit, owner: string) {
   }
 }
 
-export async function getProfilesFromGitHub(accessToken: string): Promise<ChatbotProfile[]> {
+export async function getChatbotsFromGitHub(accessToken: string): Promise<ChatbotProfile[]> {
   const octokit = new Octokit({ auth: accessToken });
   const { data: user } = await octokit.users.getAuthenticated();
   const username = user.login;
@@ -31,11 +31,11 @@ export async function getProfilesFromGitHub(accessToken: string): Promise<Chatbo
     const { data } = await octokit.repos.getContent({
       owner: username,
       repo: repoName,
-      path: "profiles",
+      path: "chatbots",
     });
 
     if (Array.isArray(data)) {
-      const profiles: ChatbotProfile[] = [];
+      const chatbots: ChatbotProfile[] = [];
       
       for (const item of data) {
         if (item.type === "file" && item.name.endsWith(".json") && item.name !== "current.json") {
@@ -48,18 +48,18 @@ export async function getProfilesFromGitHub(accessToken: string): Promise<Chatbo
             
             if ("content" in fileData) {
               const content = Buffer.from(fileData.content, "base64").toString("utf-8");
-              const profile = JSON.parse(content) as ChatbotProfile;
-              if (profile?.id && profile?.name && profile?.systemPrompt) {
-                profiles.push(profile);
+              const chatbot = JSON.parse(content) as ChatbotProfile;
+              if (chatbot?.id && chatbot?.name && chatbot?.systemPrompt) {
+                chatbots.push(chatbot);
               }
             }
           } catch (e) {
-            console.error(`Error reading profile ${item.name}:`, e);
+            console.error(`Error reading chatbot ${item.name}:`, e);
           }
         }
       }
       
-      return profiles;
+      return chatbots;
     }
   } catch (error: any) {
     if (error.status === 404) {
@@ -71,7 +71,7 @@ export async function getProfilesFromGitHub(accessToken: string): Promise<Chatbo
   return [];
 }
 
-export async function getProfileFromGitHub(accessToken: string, profileId: string): Promise<ChatbotProfile | null> {
+export async function getChatbotFromGitHub(accessToken: string, chatbotId: string): Promise<ChatbotProfile | null> {
   const octokit = new Octokit({ auth: accessToken });
   const { data: user } = await octokit.users.getAuthenticated();
   const username = user.login;
@@ -81,7 +81,7 @@ export async function getProfileFromGitHub(accessToken: string, profileId: strin
     const { data: fileData } = await octokit.repos.getContent({
       owner: username,
       repo: repoName,
-      path: `profiles/${profileId}.json`,
+      path: `chatbots/${chatbotId}.json`,
     });
     
     if ("content" in fileData) {
@@ -98,12 +98,12 @@ export async function getProfileFromGitHub(accessToken: string, profileId: strin
   return null;
 }
 
-export async function saveProfileToGitHub(accessToken: string, profile: ChatbotProfile): Promise<void> {
+export async function saveChatbotToGitHub(accessToken: string, chatbot: ChatbotProfile): Promise<void> {
   const octokit = new Octokit({ auth: accessToken });
   const { data: user } = await octokit.users.getAuthenticated();
   const username = user.login;
   const repoName = REPO_NAME;
-  const fileName = `profiles/${profile.id}.json`;
+  const fileName = `chatbots/${chatbot.id}.json`;
 
   // Try to create repo if it doesn't exist
   await ensureRepoExists(octokit, username);
@@ -124,25 +124,25 @@ export async function saveProfileToGitHub(accessToken: string, profile: ChatbotP
   }
 
   // Create or update the file
-  const content = JSON.stringify(profile, null, 2);
+  const content = JSON.stringify(chatbot, null, 2);
   const contentBase64 = Buffer.from(content).toString("base64");
 
   await octokit.repos.createOrUpdateFileContents({
     owner: username,
     repo: repoName,
     path: fileName,
-    message: `Save chatbot profile: ${profile.name}`,
+    message: `Save chatbot: ${chatbot.name}`,
     content: contentBase64,
     sha: sha,
   });
 }
 
-export async function deleteProfileFromGitHub(accessToken: string, profileId: string): Promise<void> {
+export async function deleteChatbotFromGitHub(accessToken: string, chatbotId: string): Promise<void> {
   const octokit = new Octokit({ auth: accessToken });
   const { data: user } = await octokit.users.getAuthenticated();
   const username = user.login;
   const repoName = REPO_NAME;
-  const fileName = `profiles/${profileId}.json`;
+  const fileName = `chatbots/${chatbotId}.json`;
 
   // Get file content to get SHA
   let sha: string | undefined;
@@ -169,13 +169,13 @@ export async function deleteProfileFromGitHub(accessToken: string, profileId: st
       owner: username,
       repo: repoName,
       path: fileName,
-      message: `Delete chatbot profile: ${profileId}`,
+      message: `Delete chatbot: ${chatbotId}`,
       sha: sha,
     });
   }
 }
 
-export async function getCurrentProfileIdFromGitHub(accessToken: string): Promise<string | null> {
+export async function getCurrentChatbotIdFromGitHub(accessToken: string): Promise<string | null> {
   const octokit = new Octokit({ auth: accessToken });
   const { data: user } = await octokit.users.getAuthenticated();
   const username = user.login;
@@ -184,13 +184,13 @@ export async function getCurrentProfileIdFromGitHub(accessToken: string): Promis
     const { data } = await octokit.repos.getContent({
       owner: username,
       repo: REPO_NAME,
-      path: CURRENT_PROFILE_PATH,
+      path: CURRENT_CHATBOT_PATH,
     });
 
     if ("content" in data) {
       const content = Buffer.from(data.content, "base64").toString("utf-8");
-      const parsed = JSON.parse(content) as { profileId?: string; currentProfileId?: string };
-      return parsed.profileId || parsed.currentProfileId || null;
+      const parsed = JSON.parse(content) as { profileId?: string; currentProfileId?: string; chatbotId?: string; currentChatbotId?: string };
+      return parsed.chatbotId || parsed.currentChatbotId || parsed.profileId || parsed.currentProfileId || null;
     }
   } catch (error: any) {
     if (error.status === 404) {
@@ -202,7 +202,7 @@ export async function getCurrentProfileIdFromGitHub(accessToken: string): Promis
   return null;
 }
 
-export async function saveCurrentProfileIdToGitHub(accessToken: string, profileId: string): Promise<void> {
+export async function saveCurrentChatbotIdToGitHub(accessToken: string, chatbotId: string): Promise<void> {
   const octokit = new Octokit({ auth: accessToken });
   const { data: user } = await octokit.users.getAuthenticated();
   const username = user.login;
@@ -214,7 +214,7 @@ export async function saveCurrentProfileIdToGitHub(accessToken: string, profileI
     const { data } = await octokit.repos.getContent({
       owner: username,
       repo: REPO_NAME,
-      path: CURRENT_PROFILE_PATH,
+      path: CURRENT_CHATBOT_PATH,
     });
     if ("sha" in data) {
       sha = data.sha;
@@ -225,14 +225,14 @@ export async function saveCurrentProfileIdToGitHub(accessToken: string, profileI
     }
   }
 
-  const content = JSON.stringify({ profileId }, null, 2);
+  const content = JSON.stringify({ chatbotId }, null, 2);
   const contentBase64 = Buffer.from(content).toString("base64");
 
   await octokit.repos.createOrUpdateFileContents({
     owner: username,
     repo: REPO_NAME,
-    path: CURRENT_PROFILE_PATH,
-    message: `Set current chatbot profile to ${profileId}`,
+    path: CURRENT_CHATBOT_PATH,
+    message: `Set current chatbot to ${chatbotId}`,
     content: contentBase64,
     sha,
   });

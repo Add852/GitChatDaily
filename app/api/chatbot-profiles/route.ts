@@ -12,12 +12,12 @@ import {
 import { ChatbotProfile } from "@/types";
 import { DEFAULT_CHATBOT_PROFILE, clampResponseCount } from "@/lib/constants";
 import {
-  getProfilesFromGitHub,
-  getProfileFromGitHub,
-  saveProfileToGitHub,
-  getCurrentProfileIdFromGitHub,
-  saveCurrentProfileIdToGitHub,
-} from "@/app/api/github/profile-helpers";
+  getChatbotsFromGitHub,
+  getChatbotFromGitHub,
+  saveChatbotToGitHub,
+  getCurrentChatbotIdFromGitHub,
+  saveCurrentChatbotIdToGitHub,
+} from "@/app/api/github/chatbot-helpers";
 
 const sanitizeProfile = (profile: ChatbotProfile): ChatbotProfile => ({
   ...profile,
@@ -38,13 +38,13 @@ export async function GET(req: NextRequest) {
 
     if (session.user.accessToken) {
       try {
-        const githubCurrentId = await getCurrentProfileIdFromGitHub(session.user.accessToken);
+        const githubCurrentId = await getCurrentChatbotIdFromGitHub(session.user.accessToken);
         if (githubCurrentId) {
           currentProfileId = githubCurrentId;
           setCurrentChatbotProfileId(userId, githubCurrentId);
         }
       } catch (error) {
-        console.error("Error fetching current profile from GitHub:", error);
+        console.error("Error fetching current chatbot from GitHub:", error);
       }
     }
 
@@ -52,9 +52,9 @@ export async function GET(req: NextRequest) {
       // Try GitHub first, then fallback to local storage
       if (session.user.accessToken) {
         try {
-          const profile = await getProfileFromGitHub(session.user.accessToken, profileId);
-          if (profile) {
-            const normalizedProfile = sanitizeProfile(profile);
+          const chatbot = await getChatbotFromGitHub(session.user.accessToken, profileId);
+          if (chatbot) {
+            const normalizedProfile = sanitizeProfile(chatbot);
             return NextResponse.json({
               ...normalizedProfile,
               isCurrent: normalizedProfile.id === currentProfileId,
@@ -65,11 +65,11 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const profile = getChatbotProfile(profileId);
-      if (!profile) {
-        return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+      const chatbot = getChatbotProfile(profileId);
+      if (!chatbot) {
+        return NextResponse.json({ error: "Chatbot not found" }, { status: 404 });
       }
-      const normalizedProfile = sanitizeProfile(profile);
+      const normalizedProfile = sanitizeProfile(chatbot);
       return NextResponse.json({
         ...normalizedProfile,
         isCurrent: normalizedProfile.id === currentProfileId,
@@ -79,30 +79,30 @@ export async function GET(req: NextRequest) {
     // Fetch from GitHub first
     if (session.user.accessToken) {
       try {
-        const githubProfiles = await getProfilesFromGitHub(session.user.accessToken);
-        if (Array.isArray(githubProfiles) && githubProfiles.length > 0) {
-          // Merge with default profile (default always included)
-          const mergedProfiles = [
+        const githubChatbots = await getChatbotsFromGitHub(session.user.accessToken);
+        if (Array.isArray(githubChatbots) && githubChatbots.length > 0) {
+          // Merge with default chatbot (default always included)
+          const mergedChatbots = [
             sanitizeProfile(DEFAULT_CHATBOT_PROFILE),
-            ...githubProfiles
-              .filter((p: ChatbotProfile) => p.id !== "default")
+            ...githubChatbots
+              .filter((c: ChatbotProfile) => c.id !== "default")
               .map(sanitizeProfile),
           ];
-          if (!mergedProfiles.some((profile) => profile.id === currentProfileId)) {
+          if (!mergedChatbots.some((chatbot) => chatbot.id === currentProfileId)) {
             currentProfileId = "default";
             setCurrentChatbotProfileId(userId, currentProfileId);
             if (session.user.accessToken) {
               try {
-                await saveCurrentProfileIdToGitHub(session.user.accessToken, currentProfileId);
+                await saveCurrentChatbotIdToGitHub(session.user.accessToken, currentProfileId);
               } catch (error) {
-                console.error("Error saving fallback current profile to GitHub:", error);
+                console.error("Error saving fallback current chatbot to GitHub:", error);
               }
             }
           }
           return NextResponse.json(
-            mergedProfiles.map((profile) => ({
-              ...profile,
-              isCurrent: profile.id === currentProfileId,
+            mergedChatbots.map((chatbot) => ({
+              ...chatbot,
+              isCurrent: chatbot.id === currentProfileId,
             }))
           );
         }
@@ -112,21 +112,21 @@ export async function GET(req: NextRequest) {
     }
 
     // Fallback to local storage
-    const profiles = getAllChatbotProfiles(userId);
-    const allProfiles = profiles.find((p) => p.id === "default")
-      ? profiles
-      : [DEFAULT_CHATBOT_PROFILE, ...profiles].map(sanitizeProfile);
-    const normalizedProfiles = allProfiles.map(sanitizeProfile);
+    const chatbots = getAllChatbotProfiles(userId);
+    const allChatbots = chatbots.find((c) => c.id === "default")
+      ? chatbots
+      : [DEFAULT_CHATBOT_PROFILE, ...chatbots].map(sanitizeProfile);
+    const normalizedChatbots = allChatbots.map(sanitizeProfile);
 
-    if (!allProfiles.some((profile) => profile.id === currentProfileId)) {
+    if (!allChatbots.some((chatbot) => chatbot.id === currentProfileId)) {
       currentProfileId = "default";
       setCurrentChatbotProfileId(userId, currentProfileId);
     }
 
     return NextResponse.json(
-      normalizedProfiles.map((profile) => ({
-        ...profile,
-        isCurrent: profile.id === currentProfileId,
+      normalizedChatbots.map((chatbot) => ({
+        ...chatbot,
+        isCurrent: chatbot.id === currentProfileId,
       }))
     );
   } catch (error) {
@@ -155,17 +155,17 @@ export async function POST(req: NextRequest) {
       setCurrentChatbotProfileId(session.user.githubId, sanitizedProfile.id);
       if (session.user.accessToken) {
         try {
-          await saveCurrentProfileIdToGitHub(session.user.accessToken, sanitizedProfile.id);
+          await saveCurrentChatbotIdToGitHub(session.user.accessToken, sanitizedProfile.id);
         } catch (error) {
-          console.error("Error saving current profile to GitHub:", error);
+          console.error("Error saving current chatbot to GitHub:", error);
         }
       }
     }
 
-    // Save to GitHub (don't save default profile)
+    // Save to GitHub (don't save default chatbot)
     if (sanitizedProfile.id !== "default" && session.user.accessToken) {
       try {
-        await saveProfileToGitHub(session.user.accessToken, sanitizedProfile);
+        await saveChatbotToGitHub(session.user.accessToken, sanitizedProfile);
       } catch (e) {
         console.error("Error saving to GitHub:", e);
       }
@@ -192,12 +192,12 @@ export async function DELETE(req: NextRequest) {
     const profileId = searchParams.get("id");
 
     if (!profileId) {
-      return NextResponse.json({ error: "Profile ID is required" }, { status: 400 });
+      return NextResponse.json({ error: "Chatbot ID is required" }, { status: 400 });
     }
 
-    // Don't allow deleting the default profile
+    // Don't allow deleting the default chatbot
     if (profileId === "default") {
-      return NextResponse.json({ error: "Cannot delete the default profile" }, { status: 400 });
+      return NextResponse.json({ error: "Cannot delete the default chatbot" }, { status: 400 });
     }
 
     const userId = session.user.githubId;
@@ -210,9 +210,9 @@ export async function DELETE(req: NextRequest) {
       setCurrentChatbotProfileId(userId, "default");
       if (session.user.accessToken) {
         try {
-          await saveCurrentProfileIdToGitHub(session.user.accessToken, "default");
+          await saveCurrentChatbotIdToGitHub(session.user.accessToken, "default");
         } catch (error) {
-          console.error("Error resetting current profile on GitHub:", error);
+          console.error("Error resetting current chatbot on GitHub:", error);
         }
       }
     }
@@ -220,8 +220,8 @@ export async function DELETE(req: NextRequest) {
     // Delete from GitHub
     if (session.user.accessToken) {
       try {
-        const { deleteProfileFromGitHub } = await import("@/app/api/github/profile-helpers");
-        await deleteProfileFromGitHub(session.user.accessToken, profileId);
+        const { deleteChatbotFromGitHub } = await import("@/app/api/github/chatbot-helpers");
+        await deleteChatbotFromGitHub(session.user.accessToken, profileId);
       } catch (e) {
         console.error("Error deleting from GitHub:", e);
         // Continue even if GitHub delete fails
