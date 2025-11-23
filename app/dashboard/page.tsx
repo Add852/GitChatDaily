@@ -8,6 +8,7 @@ import { ContributionGraph } from "@/components/ContributionGraph";
 import { ContributionGraphSkeleton, Skeleton } from "@/components/Skeleton";
 import { JournalEntry } from "@/types";
 import { Modal } from "@/components/Modal";
+import { formatDate } from "@/lib/utils";
 
 const heroHighlights = [
   {
@@ -107,7 +108,7 @@ export default function Dashboard() {
   // Check if entry exists for today
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayDateStr = today.toISOString().split('T')[0];
+  const todayDateStr = formatDate(today);
   const hasEntryToday = entries.has(todayDateStr);
 
   // Calculate analytics
@@ -128,18 +129,25 @@ export default function Dashboard() {
     const averageMood = Math.round((totalMood / entriesArray.length) * 10) / 10;
 
     // Current streak (consecutive days with entries)
+    // Count backwards from today, only counting days that have entries
     let currentStreak = 0;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    for (let i = 0; i < entriesArray.length; i++) {
-      const entryDate = new Date(entriesArray[i].date);
-      entryDate.setHours(0, 0, 0, 0);
-      const daysDiff = Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
+    // Create a Set of entry dates for quick lookup
+    const entryDatesSet = new Set(entriesArray.map(entry => entry.date));
+    
+    // Check consecutive days backwards from today
+    for (let daysAgo = 0; daysAgo < entriesArray.length + 1; daysAgo++) {
+      const checkDate = new Date(today);
+      checkDate.setDate(checkDate.getDate() - daysAgo);
+      const checkDateStr = formatDate(checkDate);
       
-      if (daysDiff === i) {
+      if (entryDatesSet.has(checkDateStr)) {
         currentStreak++;
       } else {
+        // If we're checking today (daysAgo === 0) and there's no entry, streak is 0
+        // Otherwise, we've found a gap, so break
         break;
       }
     }
