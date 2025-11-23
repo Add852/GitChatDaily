@@ -24,22 +24,12 @@ export async function POST(req: NextRequest) {
 
     const { messages, systemPrompt } = await req.json();
 
-    // Log incoming request
-    console.log("\n=== CHAT REQUEST ===");
-    console.log("System Prompt:", systemPrompt?.substring(0, 100) + "...");
-    console.log("Messages count:", messages.length);
-    if (messages.length > 0) {
-      console.log("Last message:", messages[messages.length - 1]);
-    }
-
     // Get user API settings
     const userId = (session.user as any)?.githubId || session.user?.email || "unknown";
     const settings = await getUserApiSettings(
       userId,
       (session.user as any)?.accessToken
     );
-
-    console.log("Using API provider:", settings.provider);
 
     // Build the messages array
     // For initial conversation (empty messages), some models need a user message to respond to

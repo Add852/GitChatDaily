@@ -13,29 +13,47 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user's Gemini API key from settings
-    const userId = (session.user as any)?.githubId || session.user?.email || "unknown";
-    const settings = await getUserApiSettings(
-      userId,
-      (session.user as any)?.accessToken
-    );
+    // Check for API key in query parameter first (for testing before saving)
+    const { searchParams } = new URL(req.url);
+    const apiKeyFromQuery = searchParams.get("apiKey");
 
-    if (!settings.geminiApiKey) {
+    let geminiApiKey: string | undefined;
+
+    if (apiKeyFromQuery && apiKeyFromQuery.trim() !== "") {
+      // Use API key from query parameter if provided
+      geminiApiKey = apiKeyFromQuery.trim();
+    } else {
+      // Get user's Gemini API key from settings
+      const userId = (session.user as any)?.githubId || session.user?.email || "unknown";
+      const settings = await getUserApiSettings(
+        userId,
+        (session.user as any)?.accessToken
+      );
+      geminiApiKey = settings.geminiApiKey;
+    }
+
+    if (!geminiApiKey || geminiApiKey.trim() === "") {
       return NextResponse.json(
-        { error: "Gemini API key not configured" },
+        { error: "Gemini API key not configured. Please enter your API key in the settings above." },
         { status: 400 }
       );
     }
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${settings.geminiApiKey}`, {
+    const response = await fetch(`${GEMINI_API_URL}?key=${encodeURIComponent(geminiApiKey)}`, {
       headers: {
         "Content-Type": "application/json",
       },
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error: ${response.status} ${errorText}`);
+      let errorText = "";
+      try {
+        const errorData = await response.json();
+        errorText = errorData.error?.message || JSON.stringify(errorData);
+      } catch {
+        errorText = await response.text();
+      }
+      throw new Error(`Gemini API error (${response.status}): ${errorText || "Unknown error"}`);
     }
 
     const data = await response.json();

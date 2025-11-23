@@ -2,8 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
-import { Navbar } from "@/components/Navbar";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { ChatbotInterface } from "@/components/ChatbotInterface";
 import { ChatbotInterfaceSkeleton } from "@/components/Skeleton";
 import { ChatbotProfile, ConversationMessage, HighlightItem, JournalEntry } from "@/types";
@@ -18,7 +17,8 @@ function JournalPageContent() {
   const [loading, setLoading] = useState(true);
   const [conversationActive, setConversationActive] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -51,57 +51,128 @@ function JournalPageContent() {
     };
   }, []);
 
-  // Detect mobile keyboard visibility by monitoring viewport height changes
+  // Handle mobile keyboard - adjust container height to fit visual viewport
   useEffect(() => {
-    let initialHeight = window.innerHeight;
-    const threshold = 0.6; // Hide header when viewport shrinks below 60% of original height
+    if (typeof window === "undefined") return;
 
-    const handleResize = () => {
-      const currentHeight = window.innerHeight;
-      const heightRatio = currentHeight / initialHeight;
-      
-      // If viewport shrinks significantly, keyboard is likely visible
-      if (heightRatio < threshold) {
-        setIsKeyboardVisible(true);
-      } else {
-        setIsKeyboardVisible(false);
-      }
+    // Prevent scrolling at multiple levels
+    const preventScroll = () => {
+      document.documentElement.style.overflow = "hidden";
+      document.documentElement.style.height = "100%";
+      document.documentElement.style.position = "fixed";
+      document.documentElement.style.width = "100%";
+      document.body.style.overflow = "hidden";
+      document.body.style.height = "100%";
+      document.body.style.position = "fixed";
+      document.body.style.width = "100%";
+      window.scrollTo(0, 0);
     };
 
-    // Use Visual Viewport API if available (more accurate for mobile keyboards)
-    if (window.visualViewport) {
-      const handleViewportChange = () => {
-        const viewportHeight = window.visualViewport?.height || window.innerHeight;
-        const heightRatio = viewportHeight / initialHeight;
-        
-        if (heightRatio < threshold) {
-          setIsKeyboardVisible(true);
-        } else {
-          setIsKeyboardVisible(false);
-        }
-      };
+    // Prevent touch scrolling on the page, but allow it in chat container, modal, and textarea
+    const handleTouchMove = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      const chatContainer = document.querySelector('[data-chat-container]');
+      const textarea = target.closest('textarea');
+      const modalScrollable = target.closest('.modal-scrollable');
+      
+      // Allow scrolling in chat container, modal scrollable content, and textarea
+      if (chatContainer && (chatContainer.contains(target) || chatContainer === target)) {
+        return; // Allow scrolling
+      }
+      if (textarea) {
+        return; // Allow scrolling in textarea
+      }
+      if (modalScrollable) {
+        return; // Allow scrolling in modal scrollable content
+      }
+      
+      // Prevent scrolling everywhere else
+      e.preventDefault();
+    };
 
-      window.visualViewport.addEventListener("resize", handleViewportChange);
-      window.visualViewport.addEventListener("scroll", handleViewportChange);
+    const updateViewportHeight = () => {
+      // Calculate available height within the content area
+      if (containerRef.current) {
+        const parent = containerRef.current.parentElement;
+        if (parent) {
+          // Get the parent's available height (content area from AppLayout)
+          const parentHeight = parent.clientHeight;
+          setViewportHeight(parentHeight);
+        } else {
+          // Fallback: use visual viewport height minus navbar heights
+          const mobileNavbarHeight = window.innerWidth < 768 ? 64 : 0;
+          const desktopNavbarHeight = window.innerWidth >= 768 ? 64 : 0;
+          const navbarHeight = mobileNavbarHeight + desktopNavbarHeight;
+          
+          if (window.visualViewport) {
+            const height = window.visualViewport.height - navbarHeight;
+            setViewportHeight(Math.max(height, 0));
+          } else {
+            const height = window.innerHeight - navbarHeight;
+            setViewportHeight(Math.max(height, 0));
+          }
+        }
+      } else {
+        // Initial render - use visual viewport height minus navbar heights
+        const mobileNavbarHeight = window.innerWidth < 768 ? 64 : 0;
+        const desktopNavbarHeight = window.innerWidth >= 768 ? 64 : 0;
+        const navbarHeight = mobileNavbarHeight + desktopNavbarHeight;
+        
+        if (window.visualViewport) {
+          const height = window.visualViewport.height - navbarHeight;
+          setViewportHeight(Math.max(height, 0));
+        } else {
+          const height = window.innerHeight - navbarHeight;
+          setViewportHeight(Math.max(height, 0));
+        }
+      }
+      preventScroll();
+    };
+
+    // Set initial height and prevent scrolling
+    preventScroll();
+    updateViewportHeight();
+
+    // Add touch move handler to prevent page scrolling
+    document.addEventListener("touchmove", handleTouchMove, { passive: false });
+
+    // Use Visual Viewport API if available
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", updateViewportHeight);
+      window.visualViewport.addEventListener("scroll", preventScroll);
 
       return () => {
-        window.visualViewport?.removeEventListener("resize", handleViewportChange);
-        window.visualViewport?.removeEventListener("scroll", handleViewportChange);
+        window.visualViewport?.removeEventListener("resize", updateViewportHeight);
+        window.visualViewport?.removeEventListener("scroll", preventScroll);
+        document.removeEventListener("touchmove", handleTouchMove);
+        // Restore scrolling on unmount
+        document.documentElement.style.overflow = "";
+        document.documentElement.style.height = "";
+        document.documentElement.style.position = "";
+        document.documentElement.style.width = "";
+        document.body.style.overflow = "";
+        document.body.style.height = "";
+        document.body.style.position = "";
+        document.body.style.width = "";
       };
     } else {
-      // Fallback to window resize for browsers without Visual Viewport API
-      window.addEventListener("resize", handleResize);
-      window.addEventListener("orientationchange", () => {
-        // Reset initial height on orientation change
-        setTimeout(() => {
-          initialHeight = window.innerHeight;
-          handleResize();
-        }, 100);
-      });
-
+      // Fallback for browsers without Visual Viewport API
+      window.addEventListener("resize", updateViewportHeight);
+      window.addEventListener("orientationchange", updateViewportHeight);
+      
       return () => {
-        window.removeEventListener("resize", handleResize);
-        window.removeEventListener("orientationchange", handleResize);
+        window.removeEventListener("resize", updateViewportHeight);
+        window.removeEventListener("orientationchange", updateViewportHeight);
+        document.removeEventListener("touchmove", handleTouchMove);
+        // Restore scrolling on unmount
+        document.documentElement.style.overflow = "";
+        document.documentElement.style.height = "";
+        document.documentElement.style.position = "";
+        document.documentElement.style.width = "";
+        document.body.style.overflow = "";
+        document.body.style.height = "";
+        document.body.style.position = "";
+        document.body.style.width = "";
       };
     }
   }, []);
@@ -197,11 +268,8 @@ function JournalPageContent() {
   if (!session) {
     if (status === "loading") {
       return (
-        <div className="h-screen bg-github-dark flex flex-col overflow-hidden">
-          <Navbar />
-          <div className="flex-1 flex items-center justify-center">
+        <div className="flex items-center justify-center h-full">
             <div className="text-gray-400">Loading...</div>
-          </div>
         </div>
       );
     }
@@ -209,46 +277,14 @@ function JournalPageContent() {
   }
 
   return (
-    <div className="h-screen bg-github-dark flex flex-col overflow-hidden">
-      <Navbar />
-      <main className={`flex-1 min-h-0 flex flex-col max-w-7xl mx-auto w-full px-4 sm:px-6 transition-all duration-200 ${
-        isKeyboardVisible ? "py-1 sm:py-2" : "py-3 sm:py-4 lg:py-6"
-      }`}>
-        <div
-          className={`flex-shrink-0 mb-3 sm:mb-4 transition-all duration-200 ${
-            isKeyboardVisible
-              ? "max-h-0 overflow-hidden opacity-0 mb-0 py-0"
-              : "max-h-96 opacity-100"
-          }`}
-        >
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold mb-2">New Journal Entry</h1>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <p className="text-xs sm:text-sm lg:text-base text-gray-400">
-              Have a conversation with your AI companion about your day
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={selectedDate}
-                onClick={() => {
-                  if (!conversationActive) {
-                    router.push(`/entries/${selectedDate}`);
-                  }
-                }}
-                onChange={(e) => {
-                  const newDate = e.target.value;
-                  setSelectedDate(newDate);
-                  router.push(`/journal?date=${newDate}`);
-                }}
-                className={`bg-github-dark-hover border border-github-dark-border rounded-lg px-2 sm:px-3 py-1 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-github-green ${
-                  conversationActive ? "cursor-not-allowed" : "cursor-pointer"
-                }`}
-              />
-              <EntryStatus selectedDate={selectedDate} />
-            </div>
-          </div>
-        </div>
-        <div className="flex-1 min-h-0 overflow-hidden pb-16 md:pb-0">
+    <div 
+      ref={containerRef}
+      className="h-full flex flex-col overflow-hidden"
+      style={{
+        height: viewportHeight ? `${viewportHeight}px` : "100%",
+        maxHeight: viewportHeight ? `${viewportHeight}px` : "100%",
+      }}
+    >
           {loading || !chatbotProfile ? (
             <ChatbotInterfaceSkeleton />
           ) : (
@@ -261,21 +297,21 @@ function JournalPageContent() {
               onNavigateToEntries={() => router.push("/entries")}
               onNavigateToProfiles={() => router.push("/chatbots")}
               entryDate={selectedDate}
+          selectedDate={selectedDate}
+          onDateChange={(newDate) => {
+            setSelectedDate(newDate);
+            router.push(`/journal?date=${newDate}`);
+          }}
             />
           )}
-        </div>
-      </main>
     </div>
   );
 }
 
 function JournalPageFallback() {
   return (
-    <div className="h-screen bg-github-dark flex flex-col overflow-hidden">
-      <Navbar />
-      <div className="flex-1 flex items-center justify-center">
+    <div className="flex items-center justify-center h-full">
         <div className="text-gray-400">Loading...</div>
-      </div>
     </div>
   );
 }
@@ -286,65 +322,5 @@ export default function JournalPage() {
       <JournalPageContent />
     </Suspense>
   );
-}
-
-function EntryStatus({ selectedDate }: { selectedDate: string }) {
-  const [status, setStatus] = useState<"checking" | "exists" | "none">("checking");
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setStatus("checking");
-
-    const checkEntry = async () => {
-      try {
-        const response = await fetch(`/api/journal?date=${selectedDate}`, {
-          signal: controller.signal,
-        });
-
-        if (controller.signal.aborted) return;
-
-        if (response.ok) {
-          setStatus("exists");
-        } else if (response.status === 404) {
-          setStatus("none");
-        } else {
-          setStatus("none");
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          console.error("Entry status check failed:", error);
-          setStatus("none");
-        }
-      }
-    };
-
-    void checkEntry();
-
-    return () => {
-      controller.abort();
-    };
-  }, [selectedDate]);
-
-  let content = null;
-  
-  if (status === "checking") {
-    content = <p className="text-sm text-gray-400">Checking for entries on this date…</p>;
-  } else if (status === "exists") {
-    content = (
-      <p className="text-sm text-yellow-400 flex items-center gap-2">
-        Entry already exists.
-        <button
-          onClick={() => window.location.assign(`/entries/${selectedDate}`)}
-          className="text-xs text-github-green underline hover:text-github-green-hover"
-        >
-          View entry
-        </button>
-      </p>
-    );
-  } else if (status === "none") {
-    content = <p className="text-sm text-green-400">No entry yet for this date.</p>;
-  }
-
-  return <div className="min-h-[20px]">{content}</div>;
 }
 

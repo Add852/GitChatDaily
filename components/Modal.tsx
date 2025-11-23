@@ -79,7 +79,7 @@ export function Modal({ isOpen, onClose, title, children, size = "md" }: ModalPr
         </div>
 
         {/* Content - Scrollable */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable" style={{ WebkitOverflowScrolling: "touch" }}>
           <div className="p-4 sm:p-6">
             {children}
           </div>

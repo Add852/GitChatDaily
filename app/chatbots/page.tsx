@@ -3,7 +3,6 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { Navbar } from "@/components/Navbar";
 import { CardSkeleton } from "@/components/Skeleton";
 import { Modal } from "@/components/Modal";
 import { ChatbotProfile, UserApiSettings, ApiStatus, OpenRouterModel, GeminiModel, ApiProvider } from "@/types";
@@ -44,9 +43,12 @@ export default function ChatbotsPage() {
   const [savingApiSettings, setSavingApiSettings] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [showOpenRouterApiKey, setShowOpenRouterApiKey] = useState(false);
+  const [showGeminiApiKey, setShowGeminiApiKey] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const apiStatusCacheRef = useRef<{ status: ApiStatus | null; timestamp: number } | null>(null);
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+  const savedApiSettingsRef = useRef<UserApiSettings | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -64,13 +66,7 @@ export default function ChatbotsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  useEffect(() => {
-    if (apiSettings.provider === "openrouter" && showApiSettings) {
-      fetchOpenRouterModels();
-    } else if (apiSettings.provider === "gemini" && showApiSettings) {
-      fetchGeminiModels();
-    }
-  }, [apiSettings.provider, showApiSettings]);
+  // Removed automatic model loading - models will only load when user clicks "Load Models" button
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -231,6 +227,8 @@ export default function ChatbotsPage() {
       if (response.ok) {
         const settings = await response.json();
         setApiSettings(settings);
+        // Store saved settings for provider switching
+        savedApiSettingsRef.current = settings;
       }
     } catch (error) {
       console.error("Error fetching API settings:", error);
@@ -254,18 +252,31 @@ export default function ChatbotsPage() {
     }
   };
 
-  const fetchGeminiModels = async () => {
+  const fetchGeminiModels = async (showAlerts: boolean = true) => {
     setLoadingModels(true);
     try {
-      const response = await fetch("/api/gemini/models");
+      // Use API key from input field if available, otherwise use saved settings
+      const apiKeyToUse = apiSettings.geminiApiKey?.trim() || "";
+      const url = apiKeyToUse 
+        ? `/api/gemini/models?apiKey=${encodeURIComponent(apiKeyToUse)}`
+        : "/api/gemini/models";
+      
+      const response = await fetch(url);
       if (response.ok) {
         const models = await response.json();
         setGeminiModels(models);
       } else {
-        console.error("Failed to fetch Gemini models");
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        console.error("Failed to fetch Gemini models:", errorData.error || "Unknown error");
+        if (showAlerts) {
+          alert(`Failed to fetch Gemini models: ${errorData.error || "Please check your API key and try again"}`);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching Gemini models:", error);
+      if (showAlerts) {
+        alert(`Error fetching Gemini models: ${error.message || "Network error. Please check your connection and try again."}`);
+      }
     } finally {
       setLoadingModels(false);
     }
@@ -310,18 +321,21 @@ export default function ChatbotsPage() {
       });
 
       if (response.ok) {
+        // Update saved settings reference
+        savedApiSettingsRef.current = { ...apiSettings };
         // Clear cache and force fresh check after settings change
         apiStatusCacheRef.current = null;
         await checkApiStatus(false);
         setShowApiSettings(false);
         alert("API settings saved successfully!");
       } else {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ error: "Unknown error" }));
+        console.error("Error saving API settings:", error);
         alert(error.error || "Failed to save API settings");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving API settings:", error);
-      alert("Failed to save API settings. Please try again.");
+      alert(`Failed to save API settings: ${error.message || "Please try again."}`);
     } finally {
       setSavingApiSettings(false);
     }
@@ -335,11 +349,8 @@ export default function ChatbotsPage() {
   if (!session) {
     if (status === "loading") {
       return (
-        <div className="min-h-screen bg-github-dark">
-          <Navbar />
-          <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-full">
             <div className="text-gray-400">Loading...</div>
-          </div>
         </div>
       );
     }
@@ -349,9 +360,7 @@ export default function ChatbotsPage() {
   const isDefaultLocked = editingChatbot?.id === "default";
 
   return (
-    <div className="min-h-screen bg-github-dark">
-      <Navbar />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full">
         <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="flex-1">
             <h1 className="text-2xl sm:text-3xl font-bold mb-2">Chatbots</h1>
@@ -454,17 +463,24 @@ export default function ChatbotsPage() {
                   value={apiSettings.provider}
                   onChange={(e) => {
                     const provider = e.target.value as ApiProvider;
+                    const saved = savedApiSettingsRef.current;
                     setApiSettings({
                       ...apiSettings,
                       provider,
-                      // Reset provider-specific fields when switching
+                      // Load saved settings for the selected provider, or use defaults
                       ...(provider === "openrouter"
-                        ? { openRouterApiKey: "", openRouterModel: "" }
+                        ? {
+                            openRouterApiKey: saved?.openRouterApiKey || "",
+                            openRouterModel: saved?.openRouterModel || "",
+                          }
                         : provider === "gemini"
-                        ? { geminiApiKey: "", geminiModel: "" }
+                        ? {
+                            geminiApiKey: saved?.geminiApiKey || "",
+                            geminiModel: saved?.geminiModel || "",
+                          }
                         : {
-                            ollamaApiUrl: process.env.NEXT_PUBLIC_OLLAMA_API_URL || "http://localhost:11434",
-                            ollamaModel: "llama3.2:3b",
+                            ollamaApiUrl: saved?.ollamaApiUrl || process.env.NEXT_PUBLIC_OLLAMA_API_URL || "http://localhost:11434",
+                            ollamaModel: saved?.ollamaModel || "llama3.2:3b",
                           }),
                     });
                   }}
@@ -480,15 +496,34 @@ export default function ChatbotsPage() {
                 <>
                   <div>
                     <label className="block text-sm font-medium mb-2">Gemini API Key</label>
-                    <input
-                      type="password"
-                      value={apiSettings.geminiApiKey || ""}
-                      onChange={(e) =>
-                        setApiSettings({ ...apiSettings, geminiApiKey: e.target.value })
-                      }
-                      placeholder="AIza..."
-                      className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showGeminiApiKey ? "text" : "password"}
+                        value={apiSettings.geminiApiKey || ""}
+                        onChange={(e) =>
+                          setApiSettings({ ...apiSettings, geminiApiKey: e.target.value })
+                        }
+                        placeholder="AIza..."
+                        className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 pr-10 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGeminiApiKey(!showGeminiApiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-white transition-colors"
+                        aria-label={showGeminiApiKey ? "Hide API key" : "Show API key"}
+                      >
+                        {showGeminiApiKey ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-400 mt-1">
                       Get your API key from{" "}
                       <a
@@ -511,7 +546,7 @@ export default function ChatbotsPage() {
                           Click &ldquo;Load Models&rdquo; to fetch available models
                         </p>
                         <button
-                          onClick={fetchGeminiModels}
+                          onClick={() => fetchGeminiModels(true)}
                           className="px-3 py-1 text-sm bg-github-dark-hover hover:bg-github-dark-border rounded border border-github-dark-border"
                         >
                           Load Models
@@ -626,15 +661,34 @@ export default function ChatbotsPage() {
                 <>
                   <div>
                     <label className="block text-sm font-medium mb-2">OpenRouter API Key</label>
+                    <div className="relative">
                     <input
-                      type="password"
+                        type={showOpenRouterApiKey ? "text" : "password"}
                       value={apiSettings.openRouterApiKey || ""}
                       onChange={(e) =>
                         setApiSettings({ ...apiSettings, openRouterApiKey: e.target.value })
                       }
                       placeholder="sk-or-v1-..."
-                      className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
+                        className="w-full bg-github-dark-hover border border-github-dark-border rounded-lg px-4 py-2 pr-10 text-white focus:outline-none focus:ring-2 focus:ring-github-green"
                     />
+                      <button
+                        type="button"
+                        onClick={() => setShowOpenRouterApiKey(!showOpenRouterApiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-white transition-colors"
+                        aria-label={showOpenRouterApiKey ? "Hide API key" : "Show API key"}
+                      >
+                        {showOpenRouterApiKey ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-400 mt-1">
                       Get your API key from{" "}
                       <a
@@ -991,7 +1045,6 @@ export default function ChatbotsPage() {
           )}
         </div>
       </main>
-    </div>
   );
 }
 

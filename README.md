@@ -108,14 +108,15 @@ This project is ready for deployment on Vercel, Netlify, or any Node.js hosting 
    - Vercel will automatically deploy on every push to your main branch
 
 **Production Checklist:**
-- [ ] Update `NEXTAUTH_URL` to production domain
-- [ ] Update GitHub OAuth callback URL
-- [ ] Configure environment variables on hosting platform
+- [ ] Update `NEXTAUTH_URL` to production domain (e.g., `https://your-app.vercel.app`)
+- [ ] Update GitHub OAuth callback URL to production domain
+- [ ] Configure all environment variables on hosting platform
 - [ ] Set up AI provider (OpenRouter or Gemini recommended for production)
 - [ ] Test authentication flow
 - [ ] Verify GitHub repository creation
+- [ ] Test journal entry creation and sync
 
-**Note:** For production, OpenRouter or Gemini is recommended over Ollama as they don't require infrastructure setup.
+**Note:** For production, OpenRouter or Gemini is strongly recommended over Ollama as they don't require infrastructure setup. Ollama requires a local server which is not suitable for cloud deployments like Vercel.
 
 ## License
 

@@ -3,7 +3,6 @@
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Navbar } from "@/components/Navbar";
 import { CardSkeleton } from "@/components/Skeleton";
 import { JournalEntry, HighlightItem } from "@/types";
 import ReactMarkdown from "react-markdown";
@@ -172,11 +171,8 @@ export default function EntryDetailPage() {
   if (!session) {
     if (status === "loading") {
       return (
-        <div className="min-h-screen bg-github-dark">
-          <Navbar />
-          <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-full">
             <div className="text-gray-400">Loading...</div>
-          </div>
         </div>
       );
     }
@@ -186,9 +182,7 @@ export default function EntryDetailPage() {
   const moodOption = entry ? MOOD_OPTIONS.find((m) => m.value === entry.mood) : null;
 
   return (
-    <div className="min-h-screen bg-github-dark">
-      <Navbar />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full">
         <div className="mb-4">
           <button
             onClick={() => router.push("/entries")}
@@ -404,7 +398,6 @@ export default function EntryDetailPage() {
         </div>
         )}
       </main>
-    </div>
   );
 }
 

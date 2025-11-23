@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import { Navbar } from "@/components/Navbar";
 
 const developers = [
   {
@@ -26,9 +25,7 @@ const developers = [
 
 export default function ContactPage() {
   return (
-    <div className="min-h-screen bg-github-dark">
-      <Navbar />
-      <main className="max-w-7xl mx-auto px-4 py-12">
+    <main className="max-w-7xl mx-auto px-4 py-12 w-full">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-4">Meet the Developers</h1>
           <p className="text-gray-400 text-lg">
@@ -136,8 +133,7 @@ export default function ContactPage() {
             </a>
           </div>
         </div>
-      </main>
-    </div>
+    </main>
   );
 }
 

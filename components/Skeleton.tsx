@@ -70,16 +70,10 @@ export function ChatbotInterfaceSkeleton() {
           <Skeleton className="h-5 w-40 mb-2" />
           <Skeleton className="h-4 w-64" />
         </div>
-        <div className="flex-1 p-4 space-y-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex justify-start">
-              <Skeleton className="h-16 w-3/4 rounded-lg" />
-            </div>
-          ))}
+        <div className="flex-1 p-4 flex items-center justify-center">
+          <div className="text-gray-400">Loading...</div>
         </div>
-        <div className="p-3 sm:p-4 border-t border-github-dark-border">
-          <Skeleton className="h-10 w-full rounded-lg" />
-        </div>
+        {/* Input area is static, no skeleton needed */}
       </div>
     </div>
   );

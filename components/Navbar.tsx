@@ -250,7 +250,7 @@ export function Navbar() {
 
       {/* Mobile Bottom Navbar */}
       {session && (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-github-dark border-t border-github-dark-border z-[60] safe-area-inset-bottom">
+        <nav className="md:hidden bg-github-dark border-t border-github-dark-border safe-area-inset-bottom flex-shrink-0">
           <div className="flex items-center justify-around h-16 px-2">
             <Link
               href="/dashboard"
@@ -350,7 +350,7 @@ export function Navbar() {
                     }}
                   />
                   <div 
-                    className="fixed bottom-20 right-4 w-[calc(100vw-2rem)] max-w-48 bg-github-dark border border-github-dark-border rounded-lg shadow-lg z-[50] overflow-hidden"
+                    className="absolute bottom-full right-4 mb-2 w-[calc(100vw-2rem)] max-w-48 bg-github-dark border border-github-dark-border rounded-lg shadow-lg z-[50] overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                     onTouchStart={(e) => e.stopPropagation()}
                     onTouchEnd={(e) => e.stopPropagation()}
@@ -436,27 +436,6 @@ export function Navbar() {
         </nav>
       )}
 
-      {/* Mobile Floating Add Button - Hidden on journal page */}
-      {session && pathname !== "/journal" && (
-        <Link
-          href="/journal"
-          className="md:hidden fixed bottom-20 right-4 z-[55] w-14 h-14 bg-github-green hover:bg-github-green-hover text-white rounded-full shadow-lg flex items-center justify-center transition-all active:scale-95"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </Link>
-      )}
     </>
   );
 }

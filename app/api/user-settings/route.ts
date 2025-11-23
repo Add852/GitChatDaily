@@ -76,13 +76,13 @@ export async function POST(req: NextRequest) {
         );
       }
     } else if (settings.provider === "gemini") {
-      if (!settings.geminiApiKey) {
+      if (!settings.geminiApiKey || settings.geminiApiKey.trim() === "") {
         return NextResponse.json(
           { error: "Gemini API key is required" },
           { status: 400 }
         );
       }
-      if (!settings.geminiModel) {
+      if (!settings.geminiModel || settings.geminiModel.trim() === "") {
         return NextResponse.json(
           { error: "Gemini model is required" },
           { status: 400 }
@@ -95,13 +95,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Save to GitHub
-    await saveUserApiSettingsToGitHub(session.user.accessToken, settings);
+    try {
+      await saveUserApiSettingsToGitHub(session.user.accessToken, settings);
+    } catch (githubError: any) {
+      console.error("Error saving settings to GitHub:", githubError);
+      return NextResponse.json(
+        { error: githubError.message || `Failed to save settings to GitHub: ${githubError.status || "Unknown error"}` },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({ success: true, settings });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error saving user settings:", error);
     return NextResponse.json(
-      { error: "Failed to save user settings" },
+      { error: error.message || "Failed to save user settings" },
       { status: 500 }
     );
   }

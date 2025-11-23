@@ -3,7 +3,6 @@
 import { useSession, signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { Navbar } from "@/components/Navbar";
 
 const sellingPoints = [
   {
@@ -34,9 +33,7 @@ export default function Home() {
   }, [status, router]);
 
   return (
-    <div className="min-h-screen bg-github-dark">
-      <Navbar />
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
+    <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 lg:py-16 w-full">
         <div className="grid lg:grid-cols-2 gap-8 sm:gap-12 items-center">
           <div className="space-y-4 sm:space-y-6">
             <span className="inline-flex items-center gap-2 text-xs uppercase tracking-widest text-github-green font-semibold bg-github-green/10 px-3 py-1 rounded-full">
@@ -117,7 +114,6 @@ export default function Home() {
           </div>
         </section>
       </main>
-    </div>
   );
 }
 

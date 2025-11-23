@@ -3,7 +3,6 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Navbar } from "@/components/Navbar";
 import { EntryCardSkeleton } from "@/components/Skeleton";
 import { JournalEntry } from "@/types";
 import { formatDate } from "@/lib/utils";
@@ -55,11 +54,8 @@ export default function EntriesPage() {
   if (!session) {
     if (status === "loading") {
       return (
-        <div className="min-h-screen bg-github-dark">
-          <Navbar />
-          <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-full">
             <div className="text-gray-400">Loading...</div>
-          </div>
         </div>
       );
     }
@@ -67,9 +63,7 @@ export default function EntriesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-github-dark">
-      <Navbar />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full">
         <div className="mb-4 sm:mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold mb-2">All Journal Entries</h1>
           <p className="text-sm sm:text-base text-gray-400">Browse and manage your journal entries</p>
@@ -121,7 +115,6 @@ export default function EntriesPage() {
           )}
         </div>
       </main>
-    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { ConversationMessage, ChatbotProfile, HighlightItem, ApiStatus } from "@/types";
@@ -8,6 +8,87 @@ import { MOOD_OPTIONS, clampResponseCount } from "@/lib/constants";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Modal } from "@/components/Modal";
+
+// EntryStatus component - moved outside to prevent recreation on every render
+const EntryStatus = memo(({ selectedDate }: { selectedDate: string }) => {
+  const router = useRouter();
+  const [status, setStatus] = useState<"checking" | "exists" | "none">("checking");
+  const checkedDatesRef = useRef<Map<string, "exists" | "none">>(new Map());
+  const isCheckingRef = useRef(false);
+
+  useEffect(() => {
+    // Skip if we've already checked this date
+    if (checkedDatesRef.current.has(selectedDate)) {
+      setStatus(checkedDatesRef.current.get(selectedDate)!);
+      return;
+    }
+
+    // Skip if already checking
+    if (isCheckingRef.current) {
+      return;
+    }
+
+    const controller = new AbortController();
+    isCheckingRef.current = true;
+    setStatus("checking");
+
+    const checkEntry = async () => {
+      try {
+        const response = await fetch(`/api/journal?date=${selectedDate}`, {
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        let result: "exists" | "none";
+        if (response.ok) {
+          result = "exists";
+        } else if (response.status === 404) {
+          result = "none";
+        } else {
+          result = "none";
+        }
+
+        // Cache the result
+        checkedDatesRef.current.set(selectedDate, result);
+        setStatus(result);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error("Entry status check failed:", error);
+          const result = "none";
+          checkedDatesRef.current.set(selectedDate, result);
+          setStatus(result);
+        }
+      } finally {
+        isCheckingRef.current = false;
+      }
+    };
+
+    void checkEntry();
+
+    return () => {
+      controller.abort();
+      isCheckingRef.current = false;
+    };
+  }, [selectedDate]);
+
+  if (status === "checking") {
+    return <span className="text-xs text-gray-500">Checking...</span>;
+  } else if (status === "exists") {
+    return (
+      <button
+        onClick={() => router.push(`/entries/${selectedDate}`)}
+        className="text-xs text-yellow-400 hover:text-yellow-300 underline"
+      >
+        Entry exists
+      </button>
+    );
+  } else {
+    return <span className="text-xs text-green-400">New entry</span>;
+  }
+});
+
+EntryStatus.displayName = "EntryStatus";
 
 interface ChatbotInterfaceProps {
   chatbotProfile: ChatbotProfile;
@@ -23,6 +104,8 @@ interface ChatbotInterfaceProps {
   onNavigateToEntries?: () => void;
   onNavigateToProfiles?: () => void;
   entryDate?: string;
+  selectedDate?: string;
+  onDateChange?: (date: string) => void;
 }
 
 export function ChatbotInterface({
@@ -34,6 +117,8 @@ export function ChatbotInterface({
   onNavigateToEntries,
   onNavigateToProfiles,
   entryDate,
+  selectedDate,
+  onDateChange,
 }: ChatbotInterfaceProps) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -54,6 +139,7 @@ export function ChatbotInterface({
   const [isAnalyzingMood, setIsAnalyzingMood] = useState(false);
   const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [entryExists, setEntryExists] = useState<boolean | null>(null);
   const apiStatusCacheRef = useRef<{ status: ApiStatus | null; timestamp: number } | null>(null);
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -103,11 +189,10 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     conversationEndedRef.current = true;
     setConversationEnded(true);
     onConversationEnd?.();
-    // Don't show panel immediately - start generation in background
+    // Show review button immediately, even while generating mood/summary
+    setIsReviewReady(true);
     // Generate mood and summary in background
-    Promise.all([prepareMoodSuggestion(updatedMessages), generateEntryPreview(updatedMessages)]).then(() => {
-      setIsReviewReady(true);
-    });
+    Promise.all([prepareMoodSuggestion(updatedMessages), generateEntryPreview(updatedMessages)]);
   };
 
   const evaluateConversationState = async (updatedMessages: ConversationMessage[]) => {
@@ -130,7 +215,8 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     setIsReviewReady(false);
     setConversationEnded(false);
     conversationEndedRef.current = false;
-    setMessages(initialConversation);
+    // Always start with empty messages to ensure chatbot initiates conversation
+    setMessages([]);
     setInput("");
     setIsCompleted(false);
     setIsReviewModalOpen(false);
@@ -141,7 +227,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: initialConversation,
+          messages: [], // Always start with empty messages to ensure chatbot initiates
           chatbotProfile,
         }),
       });
@@ -193,13 +279,9 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
           if (line.startsWith("data: ")) {
             const data = line.startsWith("data: ") ? line.slice(6) : line;
             if (data === "[DONE]") {
-              console.log("Received [DONE] signal");
-              console.log("Full content length:", fullContent.length);
-              console.log("Full content:", fullContent);
               // Mark that we've received the done signal, but continue processing
               // to ensure we don't miss any buffered content
               if (fullContent.trim() && !messageAdded) {
-                console.log("Adding message to state");
                 const assistantMessage: ConversationMessage = {
                   role: "assistant",
                   content: fullContent.trim(),
@@ -216,7 +298,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
               if (parsed.content) {
                 fullContent += parsed.content;
                 setStreamingMessage(fullContent);
-              }
+    }
             } catch (e) {
               // Ignore parse errors for incomplete JSON
             }
@@ -226,7 +308,6 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
 
       // Final check: if we have content but haven't added the message yet
       if (fullContent.trim() && !messageAdded) {
-        console.log("Adding final message to state");
         const assistantMessage: ConversationMessage = {
           role: "assistant",
           content: fullContent.trim(),
@@ -243,7 +324,6 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
       // Don't clear streaming message here - it should already be cleared when message is added
       // Only clear if we're in an error state
       if (!messageAdded) {
-        console.log("Clearing streaming message in finally block");
         setStreamingMessage("");
       }
     }
@@ -280,9 +360,65 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     checkApiStatus(true);
   }, [checkApiStatus]);
 
+  // Always start conversation on mount, regardless of initialConversation
+  useEffect(() => {
+    if (!conversationStarted.current) {
+      conversationStarted.current = true;
+      startConversation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, streamingMessage]);
+
+  // Scroll to bottom when keyboard appears on mobile
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+
+    const handleViewportResize = () => {
+      const viewport = window.visualViewport;
+      if (!viewport) return;
+      
+      // Check if keyboard is likely open (viewport height decreased significantly)
+      const heightDiff = window.innerHeight - viewport.height;
+      if (heightDiff > 150) {
+        // Keyboard is likely open, scroll to bottom
+        setTimeout(() => {
+          shouldAutoScrollRef.current = true;
+          scrollToBottom();
+        }, 100);
+      }
+    };
+
+    const viewport = window.visualViewport;
+    viewport.addEventListener("resize", handleViewportResize);
+    return () => {
+      viewport?.removeEventListener("resize", handleViewportResize);
+    };
+  }, []);
+
+  // Check if entry exists for the selected date
+  useEffect(() => {
+    const dateToCheck = entryDate || selectedDate;
+    if (!dateToCheck) {
+      setEntryExists(null);
+      return;
+    }
+
+    const checkEntryExists = async () => {
+      try {
+        const response = await fetch(`/api/journal?date=${dateToCheck}`);
+        setEntryExists(response.ok);
+      } catch (error) {
+        console.error("Error checking entry existence:", error);
+        setEntryExists(null);
+      }
+    };
+
+    void checkEntryExists();
+  }, [entryDate, selectedDate]);
 
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
@@ -322,7 +458,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     if (!chatContainerRef.current || !shouldAutoScrollRef.current) return;
     chatContainerRef.current.scrollTo({
       top: chatContainerRef.current.scrollHeight,
-      behavior: "smooth",
+      behavior: "auto",
     });
   };
 
@@ -362,13 +498,14 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
       timestamp: new Date().toISOString(),
     };
 
-    console.log("\n=== USER MESSAGE ===");
-    console.log(input.trim());
-    console.log("===================\n");
-
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput("");
+    // Reset textarea height to single line after sending
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = "2.5rem";
+    }
     setIsLoading(true);
     setStreamingMessage("");
 
@@ -408,10 +545,6 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
               setStreamingMessage(fullContent);
             }
             if (data.done) {
-              console.log("\n=== ASSISTANT RESPONSE (in conversation) ===");
-              console.log(fullContent);
-              console.log("==========================================\n");
-              
               const assistantMessage: ConversationMessage = {
                 role: "assistant",
                 content: fullContent,
@@ -605,7 +738,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
       <div className="flex-1 min-h-0 p-3 sm:p-4">
         <div className="flex flex-col h-full overflow-hidden">
           <h4 className="font-semibold mb-2 text-sm sm:text-base">Highlights & Summary</h4>
-          <div className="flex-1 min-h-0 bg-github-dark rounded p-3 sm:p-4 border border-github-dark-border overflow-y-auto space-y-4 sm:space-y-6">
+          <div className="flex-1 min-h-0 bg-github-dark rounded p-3 sm:p-4 border border-github-dark-border overflow-y-auto space-y-4 sm:space-y-6" style={{ WebkitOverflowScrolling: "touch" }}>
             {isGeneratingSummary && highlights.length === 0 && !summary ? (
               <div className="flex flex-col items-start gap-3 text-gray-400 text-sm">
                 <div className="flex items-center gap-2">
@@ -666,18 +799,25 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
       </div>
       <div className="p-3 sm:p-4 border-t border-github-dark-border space-y-3">
         {!isCompleted && (
-          <button
-            onClick={handleSubmitEntry}
-            disabled={
-              selectedMood === null ||
-              isFinalizing ||
-              isGeneratingSummary ||
-              isAnalyzingMood
-            }
-            className="w-full px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isFinalizing ? "Saving Entry..." : "Submit Entry"}
-          </button>
+          <>
+            <button
+              onClick={handleSubmitEntry}
+              disabled={
+                selectedMood === null ||
+                isFinalizing ||
+                isGeneratingSummary ||
+                isAnalyzingMood
+              }
+              className="w-full px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isFinalizing ? "Saving Entry..." : "Submit Entry"}
+            </button>
+            {entryExists === true && (
+              <p className="text-xs text-yellow-400 mt-1">
+                ⚠️ Warning: This will overwrite the existing entry for this date.
+              </p>
+            )}
+          </>
         )}
         {isFinalizing && !isCompleted && (
           <p className="text-xs text-gray-400">Finalizing your entry...</p>
@@ -692,8 +832,12 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
               {entryDate && (
                 <button
                   onClick={() => router.push(`/entries/${entryDate}`)}
-                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm"
+                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
                 >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
                   View Entry
                 </button>
               )}
@@ -702,16 +846,22 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                   href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${entryDate}.md`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg font-medium transition-colors border border-github-dark-border text-center text-sm"
+                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-center text-sm flex items-center justify-center gap-2"
                 >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clipRule="evenodd" />
+                  </svg>
                   View in GitHub
                 </a>
               )}
               {onNavigateToEntries && (
                 <button
                   onClick={onNavigateToEntries}
-                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm"
+                  className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
                 >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
                   View All Entries
                 </button>
               )}
@@ -722,37 +872,63 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
     </>
   );
 
+
   return (
-    <div className="flex flex-col lg:flex-row h-full gap-4 overflow-hidden">
-      {/* Chat Interface */}
-      <div className={`flex flex-col ${showMoodSelector ? "flex-1 lg:w-auto" : "w-full"} h-full bg-github-dark border border-github-dark-border rounded-lg min-w-0 overflow-hidden`}>
-        <div className="p-3 sm:p-4 border-b border-github-dark-border">
-          <div className="flex items-start justify-between mb-2 gap-2">
+    <div className="flex flex-col h-full overflow-hidden min-h-0">
+      {/* Chat Interface - Mobile First Design */}
+      <div className={`flex flex-col ${showMoodSelector ? "flex-1 lg:w-auto" : "w-full"} h-full bg-github-dark min-w-0 overflow-hidden min-h-0`}>
+        {/* Chat Header - Mobile First */}
+        <div className="flex-shrink-0 bg-github-dark-hover border-b border-github-dark-border px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            {/* Left: Back button, Chatbot name, Status */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <button
+                onClick={() => router.push("/dashboard")}
+                className="p-1.5 hover:bg-github-dark rounded-lg transition-colors flex-shrink-0 md:hidden"
+                aria-label="Back to dashboard"
+              >
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
             <div className="flex-1 min-w-0">
-              <h3 className="text-base sm:text-lg font-semibold truncate">{chatbotProfile.name}</h3>
-              <p className="text-xs sm:text-sm text-gray-400 line-clamp-2">{chatbotProfile.description}</p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {apiStatus && (
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${
+                  <h3 className="text-base font-semibold text-white truncate">{chatbotProfile.name}</h3>
+                  {apiStatus && (
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                     apiStatus.available ? "bg-green-500" : "bg-red-500"
                   }`} />
-                  <span className="text-xs text-gray-400 hidden sm:inline">
-                    {apiStatus.provider === "openrouter" ? "OpenRouter" : apiStatus.provider === "gemini" ? "Gemini" : "Ollama"}
-                  </span>
+                  )}
+                </div>
+                {selectedDate && onDateChange && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => {
+                        if (!conversationEnded) {
+                          onDateChange(e.target.value);
+                        }
+                      }}
+                      disabled={conversationEnded}
+                      className="bg-github-dark border border-github-dark-border rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-github-green disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <EntryStatus selectedDate={selectedDate} />
                 </div>
               )}
+              </div>
+            </div>
+            {/* Right: Settings button */}
               {onNavigateToProfiles && (
                 <button
                   onClick={onNavigateToProfiles}
-                  className="p-1.5 hover:bg-github-dark-hover rounded-lg transition-colors"
-                  title="Manage chatbots"
-                  aria-label="Manage chatbots"
+                className="p-2 hover:bg-github-dark rounded-lg transition-colors flex-shrink-0"
+                title="Chatbot settings"
+                aria-label="Chatbot settings"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4 sm:h-5 sm:w-5 text-gray-400 hover:text-white transition-colors"
+                  className="h-5 w-5 text-gray-400 hover:text-white transition-colors"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -767,19 +943,23 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                   </svg>
                 </button>
               )}
-            </div>
           </div>
           {apiStatus && !apiStatus.available && (
-            <div className="mt-2 p-2 sm:p-3 bg-red-900/20 border border-red-700/50 rounded text-xs text-red-400">
-              <div className="font-semibold mb-1">Error Details:</div>
-              <div className="whitespace-pre-wrap font-mono text-[10px] sm:text-[11px] leading-relaxed overflow-x-auto">
-                {apiStatus.error || "API unavailable. Please check your settings."}
+            <div className="mt-2 p-2 bg-red-900/20 border border-red-700/50 rounded text-xs text-red-400">
+              <div className="font-semibold mb-1">API Error:</div>
+              <div className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed overflow-x-auto">
+                {apiStatus.error || "API unavailable"}
               </div>
             </div>
           )}
         </div>
 
-        <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
+        <div 
+          ref={chatContainerRef} 
+          data-chat-container
+          className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
         {messages.map((message, index) => (
           <div
             key={index}
@@ -816,36 +996,54 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
             </div>
           </div>
         )}
-        {isLoading && !streamingMessage && (
-          <div className="flex justify-start">
-            <div className="bg-github-dark-hover rounded-lg p-3">
-              <div className="flex space-x-2">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }} />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.4s" }} />
-              </div>
-            </div>
+        {isLoading && !streamingMessage && messages.length === 0 && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-gray-400">Loading...</div>
           </div>
         )}
         </div>
 
         {!showMoodSelector && !isReviewReady && (
-          <div className="p-3 sm:p-4 border-t border-github-dark-border">
-            <div className="flex gap-2">
+          <div className="flex-shrink-0 bg-github-dark border-t border-github-dark-border p-3 sm:p-4">
+            <div className="flex items-end gap-2 max-w-7xl mx-auto px-4 sm:px-6">
               <textarea
                 ref={inputRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
+                onFocus={() => {
+                  // Auto-scroll to bottom on mobile when user starts typing
+                  if (typeof window !== "undefined" && window.innerWidth < 768) {
+                    setTimeout(() => {
+                      shouldAutoScrollRef.current = true;
+                      scrollToBottom();
+                    }, 300);
+                  }
+                }}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  // Auto-scroll when user types on mobile
+                  if (typeof window !== "undefined" && window.innerWidth < 768) {
+                    setTimeout(() => {
+                      shouldAutoScrollRef.current = true;
+                      scrollToBottom();
+                    }, 100);
+                  }
+                }}
                 placeholder="Type your message..."
-                className="flex-1 bg-github-dark-hover border border-github-dark-border rounded-lg px-3 sm:px-4 py-2 text-sm sm:text-base text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none disabled:cursor-not-allowed disabled:opacity-60"
-                rows={2}
+                className="flex-1 bg-github-dark-hover border border-github-dark-border rounded-lg px-3 sm:px-4 py-2 text-sm sm:text-base text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-github-green resize-none disabled:cursor-not-allowed disabled:opacity-60 max-h-32 overflow-y-auto min-h-[2.5rem]"
+                rows={1}
+                style={{ height: "auto", minHeight: "2.5rem" }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = "auto";
+                  target.style.height = `${Math.min(target.scrollHeight, 128)}px`;
+                }}
                 disabled={conversationEnded}
               />
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || isLoading || conversationEnded}
-                className="px-4 sm:px-6 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                className="px-4 sm:px-6 py-2 h-[2.5rem] bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
               >
                 Send
               </button>
@@ -853,37 +1051,40 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
           </div>
         )}
         {!showMoodSelector && isReviewReady && (
-          <div className="p-3 sm:p-4 border-t border-github-dark-border">
-            <button
-              onClick={() => {
-                setShowMoodSelector(true);
-                // Auto-open modal on mobile devices
-                if (typeof window !== "undefined" && window.innerWidth < 1024) {
-                  setIsReviewModalOpen(true);
-                }
-              }}
-              className="w-full px-4 py-3 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-all flex items-center justify-center gap-2 animate-pulse hover:animate-none shadow-lg shadow-github-green/50"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
+          <div className="flex-shrink-0 bg-github-dark border-t border-github-dark-border p-3 sm:p-4">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6">
+              <button
+                onClick={() => {
+                  setShowMoodSelector(true);
+                  // Auto-open modal on mobile devices
+                  if (typeof window !== "undefined" && window.innerWidth < 1024) {
+                    setIsReviewModalOpen(true);
+                  }
+                }}
+                className="w-full px-4 py-3 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-all flex items-center justify-center gap-2 animate-pulse hover:animate-none shadow-lg shadow-github-green/50"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-              Review Entry
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+                Review Entry
+              </button>
+            </div>
           </div>
         )}
         {showMoodSelector && (
-          <div className="p-3 sm:p-4 border-t border-github-dark-border lg:hidden">
+          <div className="flex-shrink-0 bg-github-dark border-t border-github-dark-border p-3 sm:p-4 lg:hidden">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6">
             <button
               onClick={() => setIsReviewModalOpen(true)}
               className="w-full px-4 py-3 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-colors flex items-center justify-center gap-2"
@@ -904,6 +1105,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
               </svg>
               Review Entry
             </button>
+            </div>
           </div>
         )}
       </div>
@@ -993,7 +1195,7 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
             </div>
             
             {/* Scrollable Content Section */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4" style={{ WebkitOverflowScrolling: "touch" }}>
               <div className="flex flex-col">
                 <h4 className="font-semibold mb-2 text-sm sm:text-base">Highlights & Summary</h4>
                 <div className="bg-github-dark rounded p-3 sm:p-4 border border-github-dark-border space-y-4 sm:space-y-6">
@@ -1059,18 +1261,25 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
             {/* Footer Section */}
             <div className="flex-shrink-0 p-3 sm:p-4 border-t border-github-dark-border space-y-3">
               {!isCompleted && (
-                <button
-                  onClick={handleSubmitEntry}
-                  disabled={
-                    selectedMood === null ||
-                    isFinalizing ||
-                    isGeneratingSummary ||
-                    isAnalyzingMood
-                  }
-                  className="w-full px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isFinalizing ? "Saving Entry..." : "Submit Entry"}
-                </button>
+                <>
+                  <button
+                    onClick={handleSubmitEntry}
+                    disabled={
+                      selectedMood === null ||
+                      isFinalizing ||
+                      isGeneratingSummary ||
+                      isAnalyzingMood
+                    }
+                    className="w-full px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg text-sm sm:text-base font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isFinalizing ? "Saving Entry..." : "Submit Entry"}
+                  </button>
+                  {entryExists === true && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      ⚠️ Warning: This will overwrite the existing entry for this date.
+                    </p>
+                  )}
+                </>
               )}
               {isFinalizing && !isCompleted && (
                 <p className="text-xs text-gray-400">Finalizing your entry...</p>
@@ -1085,8 +1294,12 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                     {entryDate && (
                       <button
                         onClick={() => window.location.href = `/entries/${entryDate}`}
-                        className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm"
+                        className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
                       >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
                         View Entry
                       </button>
                     )}
@@ -1095,16 +1308,22 @@ CRITICAL INSTRUCTION: When you receive a message that says "Start the conversati
                         href={`https://github.com/${(session.user as any)?.username || session.user?.name}/gitchat-journal/blob/main/entries/${entryDate}.md`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-2 bg-github-dark-hover hover:bg-github-dark-border text-white rounded-lg font-medium transition-colors border border-github-dark-border text-center text-sm"
+                        className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-center text-sm flex items-center justify-center gap-2"
                       >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clipRule="evenodd" />
+                        </svg>
                         View in GitHub
                       </a>
                     )}
                     {onNavigateToEntries && (
                       <button
                         onClick={onNavigateToEntries}
-                        className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm"
+                        className="px-4 py-2 bg-github-green hover:bg-github-green-hover text-white rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
                       >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
                         View All Entries
                       </button>
                     )}

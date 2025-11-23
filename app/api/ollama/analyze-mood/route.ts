@@ -18,6 +18,10 @@ export async function POST(req: NextRequest) {
 
     const { conversation } = await req.json();
 
+    if (!Array.isArray(conversation) || conversation.length === 0) {
+      return NextResponse.json({ error: "Conversation data missing or invalid" }, { status: 400 });
+    }
+
     const conversationText = conversation
       .map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`)
       .join("\n");

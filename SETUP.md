@@ -169,27 +169,6 @@ The application will be available at [http://localhost:3000](http://localhost:30
 
 ## Production Deployment
 
-For production deployment:
-
-1. Update `NEXTAUTH_URL` to your production domain
-2. Update GitHub OAuth callback URL to production domain
-3. Set up a proper database (currently using in-memory storage)
-4. Configure environment variables on your hosting platform
-5. **AI Provider Options:**
-   - **Ollama**: Ensure Ollama is accessible from your production environment (consider Docker)
-   - **OpenRouter**: Recommended for production - no infrastructure needed, just configure API key
-   - **Gemini**: Recommended for production - no infrastructure needed, just configure API key
-6. Set up proper error monitoring and logging
-
-## Notes
-
-- Journal entries and chatbot profiles are stored in GitHub repositories (persistent storage)
-- The GitHub repository `gitchat-journal` is created automatically in your account
-- In-memory storage (`lib/storage.ts`) is used as a fallback cache only
-- All data persists across server restarts via GitHub storage
-
-## Production Deployment
-
 ### Recommended Setup
 
 1. **Use OpenRouter or Gemini for AI** - No infrastructure needed, just configure API key
@@ -205,9 +184,9 @@ For production deployment:
 - Add environment variables in project settings:
   - `GITHUB_CLIENT_ID`
   - `GITHUB_CLIENT_SECRET`
-  - `NEXTAUTH_URL` (your Vercel domain)
+  - `NEXTAUTH_URL` (your Vercel domain, e.g., `https://your-app.vercel.app`)
   - `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`)
-  - `OLLAMA_API_URL` (optional, only if using Ollama)
+  - `OLLAMA_API_URL` (optional, only if using Ollama - not recommended for production)
 - Update GitHub OAuth callback URL to: `https://your-app.vercel.app/api/auth/callback/github`
 - NextAuth works out of the box
 - Automatic deployments on every push
@@ -217,4 +196,12 @@ For production deployment:
 - Set `NEXTAUTH_URL` to your production domain
 - Configure GitHub OAuth callback URL
 - Set all required environment variables
+
+## Notes
+
+- Journal entries and chatbot profiles are stored in GitHub repositories (persistent storage)
+- The GitHub repository `gitchat-journal` is created automatically in your account
+- In-memory storage (`lib/storage.ts`) is used as a fallback cache only
+- All data persists across server restarts via GitHub storage
+- For production, OpenRouter or Gemini is recommended over Ollama as they don't require infrastructure setup
 

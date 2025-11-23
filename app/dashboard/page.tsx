@@ -4,7 +4,6 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { Navbar } from "@/components/Navbar";
 import { ContributionGraph } from "@/components/ContributionGraph";
 import { ContributionGraphSkeleton, Skeleton } from "@/components/Skeleton";
 import { JournalEntry } from "@/types";
@@ -91,11 +90,8 @@ export default function Dashboard() {
   if (!session) {
     if (status === "loading") {
       return (
-        <div className="min-h-screen bg-github-dark">
-          <Navbar />
-          <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-full">
             <div className="text-gray-400">Loading...</div>
-          </div>
         </div>
       );
     }
@@ -223,9 +219,7 @@ export default function Dashboard() {
   const stats = calculateStats();
 
   return (
-    <div className="min-h-screen bg-github-dark">
-      <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 lg:py-8 space-y-4 sm:space-y-6 lg:space-y-8">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 lg:py-8 space-y-4 sm:space-y-6 lg:space-y-8 w-full">
         {/* Mobile-First: Welcome Section - Brief and Simple */}
         <section className="space-y-2 sm:space-y-3">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -284,14 +278,14 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="text-base sm:text-lg lg:text-xl font-semibold text-white mb-0.5 truncate">{mostRecentEntry.date}</p>
                     <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
-                      Mood {mostRecentEntry.mood}/5 • {mostRecentEntry.highlights.length} highlights
-                    </p>
-                    <button
-                      onClick={() => router.push(`/entries/${mostRecentEntry.date}`)}
+                    Mood {mostRecentEntry.mood}/5 • {mostRecentEntry.highlights.length} highlights
+                  </p>
+                  <button
+                    onClick={() => router.push(`/entries/${mostRecentEntry.date}`)}
                       className="text-[10px] sm:text-xs text-github-green hover:text-github-green-hover underline"
-                    >
-                      View entry →
-                    </button>
+                  >
+                    View entry →
+                  </button>
                   </div>
                   {/* Right side - Streak and status */}
                   <div className="flex flex-col items-center border-l border-github-dark-border pl-3 sm:pl-4 lg:pl-6 gap-1.5 sm:gap-2 flex-shrink-0">
@@ -380,7 +374,7 @@ export default function Dashboard() {
                   )}
                 </div>
                 {loading ? (
-                  <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center">
                     <span className="text-gray-400">Mood trend</span>
                     <div className="flex items-center gap-1.5">
                       <Skeleton className="h-4 w-16" />
@@ -455,15 +449,15 @@ export default function Dashboard() {
                               </div>
                               <span className="text-[10px] sm:text-xs text-gray-300 font-semibold w-8 text-right">
                                 {avgMood.toFixed(1)}
-                              </span>
+                    </span>
                             </div>
                           </div>
                         );
                       })}
-                    </div>
-                  </div>
-                ) : null}
+                </div>
               </div>
+                ) : null}
+            </div>
             </div>
 
           </div>
@@ -487,7 +481,6 @@ export default function Dashboard() {
             ))}
           </div>
         </section>
-      </main>
 
       {/* Stats Info Modal */}
       <Modal
@@ -537,7 +530,7 @@ export default function Dashboard() {
           </div>
         </div>
       </Modal>
-    </div>
+      </main>
   );
 }
 

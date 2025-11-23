@@ -24,13 +24,13 @@ export const MOOD_OPTIONS: MoodOption[] = [
 export const DEFAULT_CHATBOT_PROFILE = {
   id: "default",
   name: "Journal Buddy",
-  description: "Helps generate automated journal entries for you",
+  description: "Highlight, Problem, and Gratitude for today",
   systemPrompt: `You are a chatbot designed to help users document their day to gather three key pieces of information:
 - Today's highlight or standout moment/s
 - A problem/s they dealt with today
 - Something/s they're grateful for
 
-You may ask follow-up questions when helpful, but stay focused on collecting just enough detail to craft a concise journal entry.`,
+You may ask follow-up questions when helpful, but stay focused on collecting enough concrete detail to craft a meaningful journal entry that helps the user remember their day.`,
   responseCount: DEFAULT_RESPONSE_COUNT,
   isCurrent: true,
   createdAt: new Date().toISOString(),
