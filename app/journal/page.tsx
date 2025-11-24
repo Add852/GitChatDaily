@@ -8,11 +8,13 @@ import { ChatbotInterfaceSkeleton } from "@/components/Skeleton";
 import { ChatbotProfile, ConversationMessage, HighlightItem, JournalEntry } from "@/types";
 import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
+import { useCache } from "@/lib/cache/context";
 
 function JournalPageContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { chatbotProfiles, isLoading: cacheLoading, refreshChatbotProfiles, refreshJournalEntries, sync } = useCache();
   const [chatbotProfile, setChatbotProfile] = useState<ChatbotProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [conversationActive, setConversationActive] = useState(false);
@@ -36,12 +38,13 @@ function JournalPageContent() {
     }
   }, [searchParams]);
 
+  // Fetch current chatbot directly from server (not from cache)
+  // This ensures we always get the accurate current selection
   useEffect(() => {
     if (session) {
       fetchChatbotProfile();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.githubId]);
+  }, [session]);
 
   // Disable body scrolling when journal page is mounted
   useEffect(() => {
@@ -179,6 +182,7 @@ function JournalPageContent() {
 
   const fetchChatbotProfile = async () => {
     try {
+      setLoading(true);
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
         const chatbots = await response.json();
@@ -188,19 +192,16 @@ function JournalPageContent() {
             chatbots[0] ||
             DEFAULT_CHATBOT_PROFILE;
           setChatbotProfile(current);
+          setLoading(false);
           return;
         }
       }
       // If response not ok or no chatbots
-      if (!chatbotProfile) {
-        setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
-      }
+      setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
+      setLoading(false);
     } catch (error) {
       console.error("Error fetching chatbots:", error);
-      if (!chatbotProfile) {
-        setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
-      }
-    } finally {
+      setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
       setLoading(false);
     }
   };
@@ -254,6 +255,24 @@ function JournalPageContent() {
 
       if (!githubResponse.ok) {
         console.error("Failed to sync to GitHub, but entry saved locally");
+      }
+
+      // Sync cache after saving
+      try {
+        await refreshJournalEntries();
+        // Also sync this specific entry to ensure cache is up to date
+        if (session.user.accessToken) {
+          const { syncService } = await import("@/lib/cache/sync");
+          await syncService.syncJournalEntry(
+            session.user.githubId,
+            session.user.accessToken,
+            selectedDate
+          );
+          await refreshJournalEntries();
+        }
+      } catch (syncError) {
+        console.error("Error syncing cache:", syncError);
+        // Non-fatal - entry is saved
       }
 
       // Don't auto-redirect - let user view the summary

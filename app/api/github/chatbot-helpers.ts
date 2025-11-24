@@ -238,3 +238,35 @@ export async function saveCurrentChatbotIdToGitHub(accessToken: string, chatbotI
   });
 }
 
+/**
+ * Poll GitHub until the current chatbot ID matches the expected value
+ * This ensures the commit has been processed before updating the client
+ */
+export async function waitForCurrentChatbotCommit(
+  accessToken: string,
+  expectedChatbotId: string,
+  maxAttempts: number = 10,
+  delayMs: number = 500
+): Promise<boolean> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const currentId = await getCurrentChatbotIdFromGitHub(accessToken);
+      if (currentId === expectedChatbotId) {
+        return true;
+      }
+    } catch (error) {
+      // If file doesn't exist and we're setting to default, that's okay
+      if (expectedChatbotId === "default") {
+        return true;
+      }
+    }
+    
+    // Wait before next attempt
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  return false;
+}
+

@@ -2,13 +2,14 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import { ContributionGraph } from "@/components/ContributionGraph";
 import { ContributionGraphSkeleton, Skeleton } from "@/components/Skeleton";
 import { JournalEntry } from "@/types";
 import { Modal } from "@/components/Modal";
 import { formatDate } from "@/lib/utils";
+import { useCache } from "@/lib/cache/context";
 
 const heroHighlights = [
   {
@@ -31,8 +32,7 @@ const heroHighlights = [
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [entries, setEntries] = useState<Map<string, JournalEntry>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const { journalEntries, isLoading: cacheLoading, sync } = useCache();
   const [showStatsInfo, setShowStatsInfo] = useState(false);
 
   useEffect(() => {
@@ -41,52 +41,33 @@ export default function Dashboard() {
     }
   }, [status, router]);
 
+  // Sync in background when component mounts (if needed)
   useEffect(() => {
-    if (session) {
-      // Sync entries from GitHub first
-      fetch("/api/journal/sync", { method: "POST" })
-        .then(() => fetchEntries())
-        .catch((error) => {
-          console.error("Error syncing entries:", error);
-          fetchEntries(); // Still try to fetch local entries
-        });
+    if (session && !cacheLoading) {
+      // Trigger incremental sync in background
+      sync(true).catch(console.error);
     }
-  }, [session]);
+  }, [session, cacheLoading, sync]);
 
-  const fetchEntries = async () => {
-    try {
-      // Fetch all entries (we'll filter to last year in the component)
-      const response = await fetch("/api/journal");
-      if (response.ok) {
-        const data = await response.json();
-        // Ensure data is an array
-        if (Array.isArray(data)) {
-          // Filter to last year and convert to Map
-          const oneYearAgo = new Date();
-          oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-          const filteredEntries = data.filter((entry: JournalEntry) => {
-            const entryDate = new Date(entry.date);
-            return entryDate >= oneYearAgo;
-          });
-          const entriesMap = new Map<string, JournalEntry>();
-          filteredEntries.forEach((entry: JournalEntry) => {
-            entriesMap.set(entry.date, entry);
-          });
-          setEntries(entriesMap);
-        } else {
-          setEntries(new Map());
-        }
-      } else {
-        console.error("Failed to fetch entries:", response.status, response.statusText);
-        setEntries(new Map());
-      }
-    } catch (error) {
-      console.error("Error fetching entries:", error);
-      setEntries(new Map());
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Filter entries to last year and convert to Map
+  const entries = useMemo(() => {
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    
+    const filteredEntries = journalEntries.filter((entry: JournalEntry) => {
+      const entryDate = new Date(entry.date);
+      return entryDate >= oneYearAgo;
+    });
+    
+    const entriesMap = new Map<string, JournalEntry>();
+    filteredEntries.forEach((entry: JournalEntry) => {
+      entriesMap.set(entry.date, entry);
+    });
+    
+    return entriesMap;
+  }, [journalEntries]);
+
+  const loading = cacheLoading;
 
   if (!session) {
     if (status === "loading") {
@@ -229,20 +210,20 @@ export default function Dashboard() {
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 lg:py-8 space-y-4 sm:space-y-6 lg:space-y-8 w-full">
         {/* Mobile-First: Welcome Section - Brief and Simple */}
-        <section className="space-y-2 sm:space-y-3">
-          <div className="flex items-center gap-2 sm:gap-3">
+        <section className="space-y-3 sm:space-y-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             <Image
               src="/icons/app-icon.svg"
               alt="GitChat Journal logo"
               width={40}
               height={40}
-              className="w-8 h-8 sm:w-10 sm:h-10 lg:hidden flex-shrink-0"
+              className="w-10 h-10 sm:w-12 sm:h-12 lg:hidden flex-shrink-0"
             />
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold">
               Welcome back, {session.user?.name || "developer"}!
             </h1>
           </div>
-          <p className="text-sm sm:text-base text-gray-400">
+          <p className="text-base sm:text-lg text-gray-400 leading-relaxed">
             Have a conversation, auto-generate a Markdown entry, and log a mental-health-friendly commit.
           </p>
         </section>
@@ -261,8 +242,8 @@ export default function Dashboard() {
           {/* Latest Entry and Impact Stats - Takes 1 column on xl screens */}
           <div className="xl:col-span-1 space-y-4 sm:space-y-6">
             {/* Latest Entry */}
-            <div className="bg-github-dark-hover border border-github-dark-border rounded-lg p-4 sm:p-6">
-              <h2 className="text-base sm:text-lg font-semibold mb-3">Latest Entry</h2>
+            <div className="bg-github-dark-hover border border-github-dark-border rounded-lg p-5 sm:p-6">
+              <h2 className="text-lg sm:text-xl font-semibold mb-4">Latest Entry</h2>
               {loading ? (
                 <div className="flex flex-row gap-3 sm:gap-6">
                   {/* Left side - Entry details skeleton */}
@@ -284,26 +265,26 @@ export default function Dashboard() {
                 <div className="flex flex-row gap-3 sm:gap-6">
                   {/* Left side - Entry details */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-base sm:text-lg lg:text-xl font-semibold text-white mb-0.5 truncate">{mostRecentEntry.date}</p>
-                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
+                    <p className="text-lg sm:text-xl lg:text-2xl font-semibold text-white mb-1 truncate">{mostRecentEntry.date}</p>
+                    <p className="text-xs sm:text-sm text-gray-400 mb-2">
                     Mood {mostRecentEntry.mood}/5 • {mostRecentEntry.highlights.length} highlights
                   </p>
                   <button
                     onClick={() => router.push(`/entries/${mostRecentEntry.date}`)}
-                      className="text-[10px] sm:text-xs text-github-green hover:text-github-green-hover underline"
+                      className="text-sm sm:text-base text-github-green hover:text-github-green-hover underline font-medium"
                   >
                     View entry →
                   </button>
                   </div>
                   {/* Right side - Streak and status */}
-                  <div className="flex flex-col items-center border-l border-github-dark-border pl-3 sm:pl-4 lg:pl-6 gap-1.5 sm:gap-2 flex-shrink-0">
+                  <div className="flex flex-col items-center border-l border-github-dark-border pl-4 sm:pl-5 lg:pl-6 gap-2 sm:gap-3 flex-shrink-0">
                     <div className="text-center">
-                      <div className="text-[10px] sm:text-xs text-gray-400 mb-0.5">Streak</div>
-                      <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-github-green leading-none">
+                      <div className="text-xs sm:text-sm text-gray-400 mb-1">Streak</div>
+                      <div className="text-3xl sm:text-4xl lg:text-5xl font-bold text-github-green leading-none">
                         {stats.currentStreak > 0 ? `${stats.currentStreak}` : "0"}
                       </div>
                     </div>
-                    <div className={`text-[10px] sm:text-xs font-semibold text-center whitespace-nowrap ${
+                    <div className={`text-xs sm:text-sm font-semibold text-center whitespace-nowrap ${
                       hasEntryToday ? "text-green-400" : "text-yellow-400"
                     }`}>
                       {hasEntryToday ? "✅ Today" : "⏳ No Entry"}
@@ -314,15 +295,15 @@ export default function Dashboard() {
                 <div className="flex flex-row gap-3 sm:gap-6">
                   {/* Left side - No entries message */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-gray-400">No entries yet—start your first chat!</p>
+                    <p className="text-sm sm:text-base text-gray-400">No entries yet—start your first chat!</p>
                   </div>
                   {/* Right side - Streak and status */}
-                  <div className="flex flex-col items-center border-l border-github-dark-border pl-3 sm:pl-4 lg:pl-6 gap-1.5 sm:gap-2 flex-shrink-0">
+                  <div className="flex flex-col items-center border-l border-github-dark-border pl-4 sm:pl-5 lg:pl-6 gap-2 sm:gap-3 flex-shrink-0">
                     <div className="text-center">
-                      <div className="text-[10px] sm:text-xs text-gray-400 mb-0.5">Streak</div>
-                      <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-github-green leading-none">0</div>
+                      <div className="text-xs sm:text-sm text-gray-400 mb-1">Streak</div>
+                      <div className="text-3xl sm:text-4xl lg:text-5xl font-bold text-github-green leading-none">0</div>
                     </div>
-                    <div className="text-[10px] sm:text-xs font-semibold text-yellow-400 text-center whitespace-nowrap">
+                    <div className="text-xs sm:text-sm font-semibold text-yellow-400 text-center whitespace-nowrap">
                       ⏳ No Entry
                     </div>
                   </div>
@@ -331,9 +312,9 @@ export default function Dashboard() {
             </div>
 
             {/* Impact Stats */}
-            <div className="bg-github-dark-hover border border-github-dark-border rounded-lg p-4 sm:p-6">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base sm:text-lg font-semibold">Impact Stats</h2>
+            <div className="bg-github-dark-hover border border-github-dark-border rounded-lg p-5 sm:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg sm:text-xl font-semibold">Impact Stats</h2>
                 <button
                   onClick={() => setShowStatsInfo(true)}
                   className="p-1.5 hover:bg-github-dark rounded-lg transition-colors text-gray-400 hover:text-white"
@@ -356,27 +337,27 @@ export default function Dashboard() {
                   </svg>
                 </button>
               </div>
-              <div className="space-y-3 text-xs sm:text-sm">
+              <div className="space-y-4 text-sm sm:text-base">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400">Total private commits</span>
                   {loading ? (
                     <div className="flex items-center gap-1.5">
-                      <Skeleton className="h-4 w-10" />
-                      <span className="text-[10px] text-gray-500 animate-pulse">...</span>
+                      <Skeleton className="h-5 w-12" />
+                      <span className="text-xs text-gray-500 animate-pulse">...</span>
                     </div>
                   ) : (
-                    <span className="font-semibold">{entries.size}</span>
+                    <span className="font-semibold text-lg">{entries.size}</span>
                   )}
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-400">Average mood</span>
                   {loading ? (
                     <div className="flex items-center gap-1.5">
-                      <Skeleton className="h-4 w-10" />
-                      <span className="text-[10px] text-gray-500 animate-pulse">...</span>
+                      <Skeleton className="h-5 w-12" />
+                      <span className="text-xs text-gray-500 animate-pulse">...</span>
                     </div>
                   ) : (
-                    <span className="font-semibold">
+                    <span className="font-semibold text-lg">
                       {stats.averageMood !== null ? `${stats.averageMood}/5` : "—"}
                     </span>
                   )}
@@ -385,14 +366,14 @@ export default function Dashboard() {
                 <div className="flex justify-between items-center">
                     <span className="text-gray-400">Mood trend</span>
                     <div className="flex items-center gap-1.5">
-                      <Skeleton className="h-4 w-16" />
-                      <span className="text-[10px] text-gray-500 animate-pulse">...</span>
+                      <Skeleton className="h-5 w-20" />
+                      <span className="text-xs text-gray-500 animate-pulse">...</span>
                     </div>
                   </div>
                 ) : stats.moodTrend ? (
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Mood trend</span>
-                    <span className={`font-semibold flex items-center gap-1 ${
+                    <span className={`font-semibold text-lg flex items-center gap-1.5 ${
                       stats.moodTrend === "improving" ? "text-green-400" :
                       stats.moodTrend === "declining" ? "text-red-400" :
                       "text-gray-400"
@@ -516,11 +497,13 @@ export default function Dashboard() {
             <h3 className="font-semibold mb-2 text-github-green">Mood Trend</h3>
             <p className="text-gray-300">
               Compares your recent entries to older ones:
-              <ul className="list-disc list-inside mt-1 space-y-1 text-gray-400">
-                <li><strong className="text-green-400">Improving</strong>: Recent mood is significantly higher</li>
-                <li><strong className="text-red-400">Declining</strong>: Recent mood is significantly lower</li>
-                <li><strong className="text-gray-400">Stable</strong>: Mood remains consistent</li>
-              </ul>
+            </p>
+            <ul className="list-disc list-inside mt-1 space-y-1 text-gray-400 mb-2">
+              <li><strong className="text-green-400">Improving</strong>: Recent mood is significantly higher</li>
+              <li><strong className="text-red-400">Declining</strong>: Recent mood is significantly lower</li>
+              <li><strong className="text-gray-400">Stable</strong>: Mood remains consistent</li>
+            </ul>
+            <p className="text-gray-300">
               Requires at least 7 entries to calculate.
             </p>
           </div>

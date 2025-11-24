@@ -7,12 +7,12 @@ import { EntryCardSkeleton } from "@/components/Skeleton";
 import { JournalEntry } from "@/types";
 import { formatDate } from "@/lib/utils";
 import { MOOD_OPTIONS } from "@/lib/constants";
+import { useCache } from "@/lib/cache/context";
 
 export default function EntriesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { journalEntries, isLoading: cacheLoading, sync } = useCache();
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -20,36 +20,16 @@ export default function EntriesPage() {
     }
   }, [status, router]);
 
+  // Sync in background when component mounts (if needed)
   useEffect(() => {
-    if (session) {
-      // Sync entries from GitHub first
-      fetch("/api/journal/sync", { method: "POST" })
-        .then(() => fetchEntries())
-        .catch((error) => {
-          console.error("Error syncing entries:", error);
-          fetchEntries(); // Still try to fetch local entries
-        });
+    if (session && !cacheLoading) {
+      // Trigger incremental sync in background
+      sync(true).catch(console.error);
     }
-  }, [session]);
+  }, [session, cacheLoading, sync]);
 
-  const fetchEntries = async () => {
-    try {
-      const response = await fetch("/api/journal");
-      if (response.ok) {
-        const data = await response.json();
-        // Ensure data is an array
-        setEntries(Array.isArray(data) ? data : []);
-      } else {
-        console.error("Failed to fetch entries:", response.status, response.statusText);
-        setEntries([]);
-      }
-    } catch (error) {
-      console.error("Error fetching entries:", error);
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = cacheLoading;
+  const entries = journalEntries;
 
   if (!session) {
     if (status === "loading") {

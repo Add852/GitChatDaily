@@ -2,7 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { CardSkeleton } from "@/components/Skeleton";
 import { Modal } from "@/components/Modal";
 import { ChatbotProfile, UserApiSettings, ApiStatus, OpenRouterModel, GeminiModel, ApiProvider } from "@/types";
@@ -13,12 +13,13 @@ import {
   RESPONSE_COUNT_MIN,
   clampResponseCount,
 } from "@/lib/constants";
+import { useCache } from "@/lib/cache/context";
 
 export default function ChatbotsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { chatbotProfiles, isLoading: cacheLoading, refreshChatbotProfiles, sync } = useCache();
   const [chatbots, setChatbots] = useState<ChatbotProfile[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingChatbot, setEditingChatbot] = useState<ChatbotProfile | null>(null);
   const [formData, setFormData] = useState({
@@ -56,9 +57,45 @@ export default function ChatbotsPage() {
     }
   }, [status, router]);
 
+  // Fetch chatbots with current selection from server (not from cache)
+  const fetchChatbotsWithCurrent = useCallback(async () => {
+    try {
+      const response = await fetch("/api/chatbot-profiles");
+      if (response.ok) {
+        const data = await response.json();
+        setChatbots(Array.isArray(data) ? data : []);
+      } else {
+        // Fallback to cached profiles if API fails
+        if (chatbotProfiles.length > 0) {
+          setChatbots(chatbotProfiles);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching chatbots:", error);
+      // Fallback to cached profiles
+      if (chatbotProfiles.length > 0) {
+        setChatbots(chatbotProfiles);
+      }
+    }
+  }, [chatbotProfiles]);
+
+  // Load chatbots on mount and when session changes
   useEffect(() => {
     if (session) {
-      fetchChatbots();
+      fetchChatbotsWithCurrent();
+    }
+  }, [session]);
+  
+  // Sync in background when component mounts (if needed)
+  useEffect(() => {
+    if (session && !cacheLoading) {
+      // Trigger incremental sync in background
+      sync(true).catch(console.error);
+    }
+  }, [session, cacheLoading, sync]);
+
+  useEffect(() => {
+    if (session) {
       fetchApiSettings();
       // Use cached status if available, otherwise check
       checkApiStatus(true);
@@ -89,19 +126,6 @@ export default function ChatbotsPage() {
     };
   }, [isModelDropdownOpen]);
 
-  const fetchChatbots = async () => {
-    try {
-      const response = await fetch("/api/chatbot-profiles");
-      if (response.ok) {
-        const data = await response.json();
-        setChatbots(data);
-      }
-    } catch (error) {
-      console.error("Error fetching chatbots:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,7 +154,11 @@ export default function ChatbotsPage() {
       });
 
       if (response.ok) {
-        await fetchChatbots();
+        // Refresh from server to get accurate current selection
+        await fetchChatbotsWithCurrent();
+        // Sync cache in background
+        await refreshChatbotProfiles();
+        await sync(true).catch(console.error);
         setShowCreateForm(false);
         setEditingChatbot(null);
         setFormData({
@@ -173,18 +201,21 @@ export default function ChatbotsPage() {
   const handleSetCurrent = async (chatbot: ChatbotProfile) => {
     setSettingCurrentId(chatbot.id);
     try {
+      // Step 1: Update GitHub (server-side)
       const response = await fetch("/api/chatbot-profiles/current", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId: chatbot.id }),
       });
 
-      if (response.ok) {
-        await fetchChatbots();
-      } else {
+      if (!response.ok) {
         const error = await response.json();
         alert(error.error || "Failed to set current chatbot");
+        return;
       }
+
+      // Fetch fresh data from server to get accurate current selection
+      await fetchChatbotsWithCurrent();
     } catch (error) {
       console.error("Error setting current chatbot:", error);
       alert("Failed to set current chatbot. Please try again.");
@@ -210,7 +241,11 @@ export default function ChatbotsPage() {
       });
 
       if (response.ok) {
-        await fetchChatbots();
+        // Refresh from server to get accurate current selection
+        await fetchChatbotsWithCurrent();
+        // Sync cache in background
+        await refreshChatbotProfiles();
+        await sync(true).catch(console.error);
       } else {
         const error = await response.json();
         alert(error.error || "Failed to delete chatbot");
@@ -978,7 +1013,7 @@ export default function ChatbotsPage() {
         </Modal>
 
         <div className="space-y-3 sm:space-y-4">
-          {loading ? (
+          {cacheLoading ? (
             <>
               {Array.from({ length: 2 }).map((_, i) => (
                 <CardSkeleton key={i} />

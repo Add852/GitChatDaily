@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useBackButtonHandler } from "@/hooks/useBackButtonHandler";
 
 interface ModalProps {
   isOpen: boolean;
@@ -11,6 +12,9 @@ interface ModalProps {
 }
 
 export function Modal({ isOpen, onClose, title, children, size = "md" }: ModalProps) {
+  // Handle browser back button
+  useBackButtonHandler(isOpen, onClose);
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";

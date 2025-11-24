@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { useBackButtonHandler } from "@/hooks/useBackButtonHandler";
 
 export function Navbar() {
   const { data: session } = useSession();
@@ -12,7 +13,11 @@ export function Navbar() {
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
-  const profileDropdownRef = useRef<HTMLDivElement>(null);
+  const desktopProfileDropdownRef = useRef<HTMLDivElement>(null);
+  const mobileProfileDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Handle browser back button for profile dropdown
+  useBackButtonHandler(isProfileDropdownOpen, () => setIsProfileDropdownOpen(false));
 
   // Close mobile menu when route changes
   useEffect(() => {
@@ -21,21 +26,27 @@ export function Navbar() {
 
   // Close profile dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        profileDropdownRef.current &&
-        !profileDropdownRef.current.contains(event.target as Node)
-      ) {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      const isOutsideDesktop = desktopProfileDropdownRef.current && 
+        !desktopProfileDropdownRef.current.contains(target);
+      const isOutsideMobile = mobileProfileDropdownRef.current && 
+        !mobileProfileDropdownRef.current.contains(target);
+      
+      if (isProfileDropdownOpen && isOutsideDesktop && isOutsideMobile) {
         setIsProfileDropdownOpen(false);
       }
     };
 
     if (isProfileDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
+      // Use capture phase to prevent event from reaching other elements
+      document.addEventListener("mousedown", handleClickOutside, true);
+      document.addEventListener("touchstart", handleClickOutside, true);
     }
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside, true);
+      document.removeEventListener("touchstart", handleClickOutside, true);
     };
   }, [isProfileDropdownOpen]);
 
@@ -174,7 +185,7 @@ export function Navbar() {
                     </svg>
                     Chatbots
                   </Link>
-                  <div className="relative" ref={profileDropdownRef}>
+                  <div className="relative" ref={desktopProfileDropdownRef}>
                     <button
                       onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
                       className="flex items-center focus:outline-none"
@@ -321,7 +332,7 @@ export function Navbar() {
               </svg>
               <span className="text-[10px] font-medium">Chatbots</span>
             </Link>
-            <div className="relative flex flex-col items-center justify-center flex-1 h-full min-w-0 px-2">
+            <div className="relative flex flex-col items-center justify-center flex-1 h-full min-w-0 px-2" ref={mobileProfileDropdownRef}>
               <button
                 onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
                 className="flex flex-col items-center justify-center"
@@ -340,20 +351,40 @@ export function Navbar() {
               {isProfileDropdownOpen && (
                 <>
                   <div
-                    className="fixed inset-0 bg-black/50 z-[45]"
-                    onClick={() => setIsProfileDropdownOpen(false)}
+                    className="fixed inset-0 bg-black/50 z-[60]"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsProfileDropdownOpen(false);
+                    }}
+                    onTouchStart={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
                     onTouchEnd={(e) => {
-                      // Only close if the touch didn't start on the dropdown
-                      if (e.target === e.currentTarget) {
-                        setIsProfileDropdownOpen(false);
-                      }
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsProfileDropdownOpen(false);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                     }}
                   />
                   <div 
-                    className="absolute bottom-full right-4 mb-2 w-[calc(100vw-2rem)] max-w-48 bg-github-dark border border-github-dark-border rounded-lg shadow-lg z-[50] overflow-hidden"
-                    onClick={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    onTouchEnd={(e) => e.stopPropagation()}
+                    className="absolute bottom-full right-4 mb-2 w-[calc(100vw-2rem)] max-w-48 bg-github-dark border border-github-dark-border rounded-lg shadow-lg z-[65] overflow-hidden"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onTouchEnd={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                    }}
                   >
                     <button
                       type="button"

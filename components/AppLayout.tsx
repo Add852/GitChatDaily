@@ -4,13 +4,29 @@ import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
+import { LoadingPage } from "@/components/LoadingPage";
+import { useCache } from "@/lib/cache/context";
 import { useEffect, useState, useRef } from "react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const pathname = usePathname();
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Get cache state safely
+  let isLoading = false;
+  let isInitialized = false;
+  try {
+    const cache = useCache();
+    isLoading = cache.isLoading;
+    isInitialized = cache.isInitialized;
+  } catch {
+    // Cache not available yet
+  }
+
+  // Show loading page during initialization
+  const showLoading = status === "loading" || (session && (!isInitialized || isLoading));
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -83,6 +99,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       };
     }
   }, []);
+
+  // Show loading page during initialization
+  if (showLoading) {
+    return <LoadingPage />;
+  }
 
   return (
     <div 
