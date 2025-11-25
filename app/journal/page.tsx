@@ -9,18 +9,20 @@ import { ChatbotProfile, ConversationMessage, HighlightItem, JournalEntry } from
 import { DEFAULT_CHATBOT_PROFILE } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import { useCache } from "@/lib/cache/context";
+import { cache } from "@/lib/cache/indexeddb";
 
 function JournalPageContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { chatbotProfiles, isLoading: cacheLoading, refreshChatbotProfiles, refreshJournalEntries, sync } = useCache();
+  const { chatbotProfiles, refreshJournalEntries } = useCache();
   const [chatbotProfile, setChatbotProfile] = useState<ChatbotProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [conversationActive, setConversationActive] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hasLoadedFromCache = useRef(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -38,11 +40,23 @@ function JournalPageContent() {
     }
   }, [searchParams]);
 
-  // Fetch current chatbot directly from server (not from cache)
-  // This ensures we always get the accurate current selection
+  // Load from cache immediately for fast display
+  useEffect(() => {
+    if (!hasLoadedFromCache.current && chatbotProfiles.length > 0 && !chatbotProfile) {
+      // Use cached profile marked as current, or first one, or default
+      const cachedCurrent = chatbotProfiles.find((c) => c.isCurrent) || chatbotProfiles[0];
+      if (cachedCurrent) {
+        setChatbotProfile(cachedCurrent);
+        setLoading(false);
+        hasLoadedFromCache.current = true;
+      }
+    }
+  }, [chatbotProfiles, chatbotProfile]);
+
+  // Fetch current chatbot ID from server to ensure we have the correct selection
   useEffect(() => {
     if (session) {
-      fetchChatbotProfile();
+      fetchCurrentProfileFromServer();
     }
   }, [session]);
 
@@ -180,14 +194,39 @@ function JournalPageContent() {
     }
   }, []);
 
-  const fetchChatbotProfile = async () => {
+  const fetchCurrentProfileFromServer = async () => {
     try {
-      setLoading(true);
+      // First, fetch just the current profile ID (fast, lightweight call)
+      const currentIdResponse = await fetch("/api/chatbot-profiles/current");
+      let currentProfileId = "default";
+      if (currentIdResponse.ok) {
+        const data = await currentIdResponse.json();
+        currentProfileId = data.profileId || "default";
+      }
+
+      // Check if we already have the correct profile loaded
+      if (chatbotProfile && chatbotProfile.id === currentProfileId) {
+        setLoading(false);
+        return;
+      }
+
+      // If we have cached profiles, try to find the current one there
+      if (chatbotProfiles.length > 0) {
+        const cachedProfile = chatbotProfiles.find((c) => c.id === currentProfileId);
+        if (cachedProfile) {
+          setChatbotProfile(cachedProfile);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // If current profile is not in cache, fetch all profiles from server
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
         const chatbots = await response.json();
         if (Array.isArray(chatbots) && chatbots.length > 0) {
           const current =
+            chatbots.find((c: ChatbotProfile) => c.id === currentProfileId) ||
             chatbots.find((c: ChatbotProfile) => c.isCurrent) ||
             chatbots[0] ||
             DEFAULT_CHATBOT_PROFILE;
@@ -196,12 +235,18 @@ function JournalPageContent() {
           return;
         }
       }
-      // If response not ok or no chatbots
-      setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
+      
+      // Fallback to default if nothing else works
+      if (!chatbotProfile) {
+        setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
+      }
       setLoading(false);
     } catch (error) {
-      console.error("Error fetching chatbots:", error);
-      setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
+      console.error("Error fetching chatbot profile:", error);
+      // If we already have a profile from cache, keep using it
+      if (!chatbotProfile) {
+        setChatbotProfile(DEFAULT_CHATBOT_PROFILE);
+      }
       setLoading(false);
     }
   };
@@ -257,22 +302,13 @@ function JournalPageContent() {
         console.error("Failed to sync to GitHub, but entry saved locally");
       }
 
-      // Sync cache after saving
+      // Update IndexedDB cache immediately for instant UI updates
       try {
+        await cache.saveJournalEntry({ ...entry, userId: session.user.githubId });
         await refreshJournalEntries();
-        // Also sync this specific entry to ensure cache is up to date
-        if (session.user.accessToken) {
-          const { syncService } = await import("@/lib/cache/sync");
-          await syncService.syncJournalEntry(
-            session.user.githubId,
-            session.user.accessToken,
-            selectedDate
-          );
-          await refreshJournalEntries();
-        }
-      } catch (syncError) {
-        console.error("Error syncing cache:", syncError);
-        // Non-fatal - entry is saved
+      } catch (cacheError) {
+        console.error("Error updating cache:", cacheError);
+        // Non-fatal - entry is saved to API
       }
 
       // Don't auto-redirect - let user view the summary

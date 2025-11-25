@@ -4,16 +4,17 @@ A GitHub-themed daily conversational chatbot journaling system that syncs your j
 
 ## Features
 
-- 🔐 GitHub OAuth authentication
-- 💬 Conversational AI chatbot for journaling (supports Ollama, OpenRouter, or Gemini)
-- 📝 Automated markdown journal entry summaries
-- 🔄 GitHub commit sync for each journal entry
-- 📊 GitHub-style contribution graph with mood colors
-- 🎭 Customizable chatbots
-- 😊 Mood tracking (1-5 scale with emojis)
-- ✏️ Edit and overwrite journal entries
-- ☁️ Cloud AI support via OpenRouter or Gemini (optional)
-- 📱 Fully responsive design with mobile support
+- 🔐 **GitHub OAuth** - Seamless authentication with GitHub
+- 💬 **AI-Powered Journaling** - Conversational chatbot (Ollama, OpenRouter, or Gemini)
+- 📝 **Smart Summaries** - AI-generated markdown journal entries with highlights
+- 🔄 **GitHub Sync** - Automatic commits to your private `gitchat-journal` repository
+- 📊 **Contribution Graph** - GitHub-style activity visualization with mood colors
+- 🎭 **Custom Chatbots** - Create personalized AI companions with unique personalities
+- 😊 **Mood Tracking** - 1-5 scale with emoji indicators
+- ✏️ **Entry Management** - View, edit, and redo journal entries
+- 📱 **PWA Support** - Installable as a mobile/desktop app
+- ⚡ **Offline-First** - IndexedDB caching for instant loading
+- 🎨 **Dark Theme** - Beautiful GitHub-inspired dark UI
 
 ## Quick Start
 
@@ -59,14 +60,24 @@ For detailed setup instructions, see [SETUP.md](./SETUP.md).
 ## Project Structure
 
 ```
-├── app/                    # Next.js app directory
-│   ├── api/               # API routes
-│   ├── chatbots/          # Chatbots management page
-│   ├── dashboard/        # Dashboard page
-│   ├── entries/           # Journal entries pages
-│   └── journal/           # New entry page
+├── app/                    # Next.js App Router
+│   ├── api/               # API routes (auth, journal, AI providers)
+│   ├── chatbots/          # Chatbot management page
+│   ├── contact/           # Developer contact page
+│   ├── dashboard/         # Dashboard with contribution graph
+│   ├── entries/           # Journal entries listing & detail
+│   ├── journal/           # New entry creation (chat interface)
+│   └── manifest.ts        # PWA manifest configuration
 ├── components/            # React components
-├── lib/                   # Utility functions and helpers
+│   ├── ChatbotInterface/  # Main chat UI component
+│   ├── ContributionGraph/ # GitHub-style activity graph
+│   └── ...                # Layout, modals, skeletons
+├── hooks/                 # Custom React hooks
+├── lib/                   # Core utilities
+│   ├── cache/             # IndexedDB caching & sync
+│   ├── api-provider.ts    # AI provider abstraction
+│   └── github-journal.ts  # GitHub API helpers
+├── public/                # Static assets & PWA icons
 └── types/                 # TypeScript type definitions
 ```
 
@@ -80,50 +91,77 @@ For detailed setup instructions, see [SETUP.md](./SETUP.md).
 
 ## Deployment
 
-This project is ready for deployment on Vercel, Netlify, or any Node.js hosting service.
+This project is production-ready and optimized for deployment on Vercel, Netlify, or any Node.js hosting platform.
 
 ### Vercel Deployment (Recommended)
 
 1. **Push your code to GitHub**
 
-2. **Import project to Vercel:**
-   - Go to [vercel.com](https://vercel.com)
-   - Click "Add New Project"
+2. **Import to Vercel:**
+   - Go to [vercel.com](https://vercel.com) and click "Add New Project"
    - Import your GitHub repository
+   - Vercel auto-detects Next.js configuration
 
-3. **Configure environment variables in Vercel:**
-   - Go to Project Settings → Environment Variables
-   - Add all required variables:
-     - `GITHUB_CLIENT_ID`
-     - `GITHUB_CLIENT_SECRET`
-     - `NEXTAUTH_URL` (set to your Vercel domain, e.g., `https://your-app.vercel.app`)
-     - `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`)
-     - `OLLAMA_API_URL` (optional, only if using Ollama)
+3. **Configure Environment Variables:**
+   Navigate to Project Settings → Environment Variables and add:
+
+   | Variable | Value | Required |
+   |----------|-------|----------|
+   | `GITHUB_CLIENT_ID` | Your GitHub OAuth App Client ID | ✅ |
+   | `GITHUB_CLIENT_SECRET` | Your GitHub OAuth App Secret | ✅ |
+   | `NEXTAUTH_URL` | Your production URL (e.g., `https://your-app.vercel.app`) | ✅ |
+   | `NEXTAUTH_SECRET` | Generate with `openssl rand -base64 32` | ✅ |
 
 4. **Update GitHub OAuth App:**
    - Go to GitHub Settings → Developer settings → OAuth Apps
-   - Update your OAuth app's callback URL to: `https://your-app.vercel.app/api/auth/callback/github`
+   - Update callback URL to: `https://your-app.vercel.app/api/auth/callback/github`
 
 5. **Deploy:**
-   - Vercel will automatically deploy on every push to your main branch
+   - Vercel auto-deploys on every push to main branch
+   - First deployment may take 2-3 minutes
 
-**Production Checklist:**
-- [ ] Update `NEXTAUTH_URL` to production domain (e.g., `https://your-app.vercel.app`)
-- [ ] Update GitHub OAuth callback URL to production domain
-- [ ] Configure all environment variables on hosting platform
-- [ ] Set up AI provider (OpenRouter or Gemini recommended for production)
-- [ ] Test authentication flow
-- [ ] Verify GitHub repository creation
-- [ ] Test journal entry creation and sync
+### Production Checklist
 
-**Note:** For production, OpenRouter or Gemini is strongly recommended over Ollama as they don't require infrastructure setup. Ollama requires a local server which is not suitable for cloud deployments like Vercel.
+- [ ] Environment variables configured on hosting platform
+- [ ] `NEXTAUTH_URL` set to production domain
+- [ ] GitHub OAuth callback URL updated
+- [ ] AI provider configured (OpenRouter or Gemini recommended)
+- [ ] Test authentication flow end-to-end
+- [ ] Verify journal entry creation and GitHub sync
+- [ ] Test on mobile devices (PWA installation)
+
+### AI Provider Recommendations
+
+| Provider | Best For | Setup |
+|----------|----------|-------|
+| **Gemini** | Production (free tier available) | API key from [Google AI Studio](https://makersuite.google.com/app/apikey) |
+| **OpenRouter** | Production (pay-per-use) | API key from [openrouter.ai](https://openrouter.ai) |
+| **Ollama** | Local development only | Not suitable for cloud deployments |
+
+> **Note:** Ollama requires a local server and is not compatible with serverless platforms like Vercel.
+
+## Tech Stack
+
+- **Framework:** [Next.js 16](https://nextjs.org/) with App Router
+- **Language:** [TypeScript](https://www.typescriptlang.org/)
+- **Styling:** [Tailwind CSS](https://tailwindcss.com/)
+- **Authentication:** [NextAuth.js](https://next-auth.js.org/) with GitHub OAuth
+- **Storage:** GitHub API + IndexedDB (offline-first caching)
+- **AI Providers:** Ollama, OpenRouter, Google Gemini
+- **Deployment:** Optimized for Vercel
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) for details.
 
 ## Developers
 
+Built with 💚 by:
+
 - **Anthony Dayrit** - [@Add852](https://github.com/Add852)
 - **Keith Yamzon** - [@yammzzon](https://github.com/yammzzon)
+
+---
+
+*Submitted for HackNode 2025*
 

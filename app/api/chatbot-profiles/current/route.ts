@@ -4,12 +4,48 @@ import { authOptions } from "@/lib/auth-options";
 import {
   getAllChatbotProfiles,
   setCurrentChatbotProfileId,
+  getCurrentChatbotProfileId,
 } from "@/lib/storage";
 import {
   getChatbotsFromGitHub,
   saveCurrentChatbotIdToGitHub,
+  getCurrentChatbotIdFromGitHub,
 } from "@/app/api/github/chatbot-helpers";
 import { ChatbotProfile } from "@/types";
+
+export async function GET() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.githubId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.githubId;
+    let profileId: string | null = null;
+
+    // Try to get current profile ID from GitHub first
+    if (session.user.accessToken) {
+      try {
+        profileId = await getCurrentChatbotIdFromGitHub(session.user.accessToken);
+      } catch (error) {
+        console.error("Error fetching current chatbot ID from GitHub:", error);
+      }
+    }
+
+    // Fall back to local storage
+    if (!profileId) {
+      profileId = getCurrentChatbotProfileId(userId);
+    }
+
+    return NextResponse.json({ profileId: profileId || "default" });
+  } catch (error) {
+    console.error("Error getting current chatbot profile:", error);
+    return NextResponse.json(
+      { error: "Failed to get current chatbot profile" },
+      { status: 500 }
+    );
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {

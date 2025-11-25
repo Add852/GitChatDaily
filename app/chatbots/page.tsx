@@ -18,8 +18,10 @@ import { useCache } from "@/lib/cache/context";
 export default function ChatbotsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { chatbotProfiles, isLoading: cacheLoading, refreshChatbotProfiles, sync } = useCache();
+  const { chatbotProfiles, isLoading: cacheLoading, sync } = useCache();
   const [chatbots, setChatbots] = useState<ChatbotProfile[]>([]);
+  const [currentProfileId, setCurrentProfileId] = useState<string | null>(null);
+  const [loadingCurrentId, setLoadingCurrentId] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingChatbot, setEditingChatbot] = useState<ChatbotProfile | null>(null);
   const [formData, setFormData] = useState({
@@ -57,34 +59,60 @@ export default function ChatbotsPage() {
     }
   }, [status, router]);
 
-  // Fetch chatbots with current selection from server (not from cache)
+  // Load profiles from cache immediately for fast display
+  useEffect(() => {
+    if (chatbotProfiles.length > 0) {
+      // Use cached profiles with isCurrent temporarily set to false
+      // The actual current selection will be synced from GitHub
+      setChatbots(chatbotProfiles.map(p => ({ ...p, isCurrent: p.id === currentProfileId })));
+    }
+  }, [chatbotProfiles, currentProfileId]);
+
+  // Fetch ONLY the current profile selection from GitHub (not optimistic)
+  const fetchCurrentProfileId = useCallback(async () => {
+    try {
+      const response = await fetch("/api/chatbot-profiles/current");
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentProfileId(data.profileId || "default");
+      } else {
+        // Fallback to default if fetch fails
+        setCurrentProfileId("default");
+      }
+    } catch (error) {
+      console.error("Error fetching current profile:", error);
+      setCurrentProfileId("default");
+    } finally {
+      setLoadingCurrentId(false);
+    }
+  }, []);
+
+  // Fetch full profiles from server (for any updates)
   const fetchChatbotsWithCurrent = useCallback(async () => {
     try {
       const response = await fetch("/api/chatbot-profiles");
       if (response.ok) {
         const data = await response.json();
-        setChatbots(Array.isArray(data) ? data : []);
-      } else {
-        // Fallback to cached profiles if API fails
-        if (chatbotProfiles.length > 0) {
-          setChatbots(chatbotProfiles);
+        const profiles = Array.isArray(data) ? data : [];
+        // Extract the current profile ID from server response
+        const current = profiles.find((p: ChatbotProfile) => p.isCurrent);
+        if (current) {
+          setCurrentProfileId(current.id);
         }
+        // Store profiles without isCurrent (we manage it via currentProfileId)
+        setChatbots(profiles);
       }
     } catch (error) {
       console.error("Error fetching chatbots:", error);
-      // Fallback to cached profiles
-      if (chatbotProfiles.length > 0) {
-        setChatbots(chatbotProfiles);
       }
-    }
-  }, [chatbotProfiles]);
+  }, []);
 
-  // Load chatbots on mount and when session changes
+  // On mount: Load current profile ID from GitHub, then sync cache in background
   useEffect(() => {
     if (session) {
-      fetchChatbotsWithCurrent();
+      fetchCurrentProfileId();
     }
-  }, [session]);
+  }, [session, fetchCurrentProfileId]);
   
   // Sync in background when component mounts (if needed)
   useEffect(() => {
@@ -154,11 +182,10 @@ export default function ChatbotsPage() {
       });
 
       if (response.ok) {
-        // Refresh from server to get accurate current selection
+        // Refresh profiles from server to get the latest data
         await fetchChatbotsWithCurrent();
         // Sync cache in background
-        await refreshChatbotProfiles();
-        await sync(true).catch(console.error);
+        sync(true).catch(console.error);
         setShowCreateForm(false);
         setEditingChatbot(null);
         setFormData({
@@ -214,8 +241,8 @@ export default function ChatbotsPage() {
         return;
       }
 
-      // Fetch fresh data from server to get accurate current selection
-      await fetchChatbotsWithCurrent();
+      // Update local state immediately after confirmed server update
+      setCurrentProfileId(chatbot.id);
     } catch (error) {
       console.error("Error setting current chatbot:", error);
       alert("Failed to set current chatbot. Please try again.");
@@ -241,11 +268,10 @@ export default function ChatbotsPage() {
       });
 
       if (response.ok) {
-        // Refresh from server to get accurate current selection
+        // Refresh profiles from server to get the latest data
         await fetchChatbotsWithCurrent();
         // Sync cache in background
-        await refreshChatbotProfiles();
-        await sync(true).catch(console.error);
+        sync(true).catch(console.error);
       } else {
         const error = await response.json();
         alert(error.error || "Failed to delete chatbot");
@@ -1013,14 +1039,16 @@ export default function ChatbotsPage() {
         </Modal>
 
         <div className="space-y-3 sm:space-y-4">
-          {cacheLoading ? (
+          {cacheLoading && chatbots.length === 0 ? (
             <>
               {Array.from({ length: 2 }).map((_, i) => (
                 <CardSkeleton key={i} />
               ))}
             </>
           ) : (
-          chatbots.map((chatbot) => (
+          chatbots.map((chatbot) => {
+            const isCurrent = chatbot.id === currentProfileId;
+            return (
             <div
               key={chatbot.id}
               className="bg-github-dark border border-github-dark-border rounded-lg p-4 sm:p-6"
@@ -1029,7 +1057,11 @@ export default function ChatbotsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2 mb-2">
                     <h3 className="text-lg sm:text-xl font-semibold">{chatbot.name}</h3>
-                    {chatbot.isCurrent && (
+                    {loadingCurrentId ? (
+                      <span className="px-2 py-1 bg-gray-600/20 text-gray-400 text-xs rounded animate-pulse">
+                        ...
+                      </span>
+                    ) : isCurrent && (
                       <span className="px-2 py-1 bg-github-green/20 text-github-green text-xs rounded">
                         Current
                       </span>
@@ -1050,7 +1082,7 @@ export default function ChatbotsPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 flex-shrink-0">
-                  {!chatbot.isCurrent && (
+                  {!isCurrent && !loadingCurrentId && (
                     <button
                       onClick={() => handleSetCurrent(chatbot)}
                       disabled={settingCurrentId === chatbot.id}
@@ -1076,7 +1108,7 @@ export default function ChatbotsPage() {
                 </div>
               </div>
             </div>
-          ))
+          );})
           )}
         </div>
       </main>

@@ -35,10 +35,13 @@ export async function getChatbotsFromGitHub(accessToken: string): Promise<Chatbo
     });
 
     if (Array.isArray(data)) {
-      const chatbots: ChatbotProfile[] = [];
+      const chatbotFiles = data.filter(
+        (item) => item.type === "file" && item.name.endsWith(".json") && item.name !== "current.json"
+      );
       
-      for (const item of data) {
-        if (item.type === "file" && item.name.endsWith(".json") && item.name !== "current.json") {
+      // Fetch all chatbot files in parallel
+      const results = await Promise.all(
+        chatbotFiles.map(async (item) => {
           try {
             const { data: fileData } = await octokit.repos.getContent({
               owner: username,
@@ -50,16 +53,18 @@ export async function getChatbotsFromGitHub(accessToken: string): Promise<Chatbo
               const content = Buffer.from(fileData.content, "base64").toString("utf-8");
               const chatbot = JSON.parse(content) as ChatbotProfile;
               if (chatbot?.id && chatbot?.name && chatbot?.systemPrompt) {
-                chatbots.push(chatbot);
+                return chatbot;
               }
             }
+            return null;
           } catch (e) {
             console.error(`Error reading chatbot ${item.name}:`, e);
+            return null;
           }
-        }
-      }
+        })
+      );
       
-      return chatbots;
+      return results.filter((c): c is ChatbotProfile => c !== null);
     }
   } catch (error: any) {
     if (error.status === 404) {

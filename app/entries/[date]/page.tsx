@@ -8,12 +8,16 @@ import { JournalEntry, HighlightItem } from "@/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MOOD_OPTIONS } from "@/lib/constants";
+import { useCache } from "@/lib/cache/context";
+import { cache } from "@/lib/cache/indexeddb";
 
 export default function EntryDetailPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const params = useParams();
+  const { refreshJournalEntries } = useCache();
   const date = params.date as string;
+  const userId = (session?.user as any)?.githubId;
   const [entry, setEntry] = useState<JournalEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -100,21 +104,29 @@ export default function EntryDetailPage() {
         setEntry(updatedEntry);
         setIsEditing(false);
 
-        // Update GitHub commit
-        await fetch("/api/github/commit", {
+        // Update IndexedDB cache immediately for instant UI updates
+        if (userId) {
+          try {
+            await cache.saveJournalEntry({ ...updatedEntry, userId });
+            await refreshJournalEntries();
+          } catch (cacheError) {
+            console.error("Error updating cache:", cacheError);
+          }
+        }
+
+        // Update GitHub commit in background
+        fetch("/api/github/commit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             date: entry.date,
             summary: editedSummary,
-            highlights: entry.highlights,
+            highlights: fallbackHighlights,
             mood: entry.mood,
             conversation: entry.conversation,
             chatbotProfileName: entry.chatbotProfileName,
           }),
-        });
-        setEntry(updatedEntry);
-        setIsEditing(false);
+        }).catch(console.error);
       }
     } catch (error) {
       console.error("Error saving entry:", error);
@@ -158,6 +170,15 @@ export default function EntryDetailPage() {
       });
       if (!response.ok) {
         throw new Error("Failed to delete entry");
+      }
+      // Update IndexedDB cache immediately for instant UI updates
+      if (userId) {
+        try {
+          await cache.deleteJournalEntry(userId, entry.date);
+          await refreshJournalEntries();
+        } catch (cacheError) {
+          console.error("Error updating cache:", cacheError);
+        }
       }
       router.push("/entries");
     } catch (error) {

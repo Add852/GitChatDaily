@@ -10,16 +10,25 @@ import { useEffect, useRef } from "react";
 export function useBackButtonHandler(isOpen: boolean, onClose: () => void) {
   const modalIdRef = useRef<string | null>(null);
   const isClosingViaBackRef = useRef<boolean>(false);
+  const historySupported = useRef<boolean>(true);
 
   useEffect(() => {
+    // Skip if history API is not supported or blocked
+    if (!historySupported.current) return;
+
     if (!isOpen) {
       // If modal closes normally (not via back button), remove our history entry
       if (modalIdRef.current && !isClosingViaBackRef.current) {
-        // Check if current state is our modal state
-        const currentState = window.history.state;
-        if (currentState?.modalId === modalIdRef.current) {
-          // Replace with a clean state to remove the modal entry
-          window.history.replaceState({}, "");
+        try {
+          // Check if current state is our modal state
+          const currentState = window.history.state;
+          if (currentState?.modalId === modalIdRef.current) {
+            // Replace with a clean state to remove the modal entry
+            window.history.replaceState({}, "");
+          }
+        } catch {
+          // History API blocked - mark as unsupported
+          historySupported.current = false;
         }
         modalIdRef.current = null;
       }
@@ -30,11 +39,18 @@ export function useBackButtonHandler(isOpen: boolean, onClose: () => void) {
     // When modal opens, push a state to history with unique ID
     // This creates a history entry that we can intercept
     const modalId = `modal-${Date.now()}-${Math.random()}`;
-    modalIdRef.current = modalId;
-    window.history.pushState({ modalId, modal: true }, "");
+    try {
+      window.history.pushState({ modalId, modal: true }, "");
+      modalIdRef.current = modalId;
+    } catch {
+      // SecurityError: History API is blocked in this context
+      // Fall back to no back button handling
+      historySupported.current = false;
+      return;
+    }
 
     // Handle back button press
-    const handlePopState = (event: PopStateEvent) => {
+    const handlePopState = () => {
       // If modal is open and back button was pressed
       if (modalIdRef.current && isOpen) {
         // Mark that we're closing via back button
@@ -58,8 +74,8 @@ export function useBackButtonHandler(isOpen: boolean, onClose: () => void) {
             // Replace state instead of going back to avoid navigation
             window.history.replaceState({}, "");
           }
-        } catch (e) {
-          // Ignore errors if history is already cleaned up
+        } catch {
+          // Ignore errors if history is already cleaned up or blocked
         }
         modalIdRef.current = null;
       }

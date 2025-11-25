@@ -74,27 +74,39 @@ export function CacheProvider({ children }: { children: ReactNode }) {
 
         // Load from cache first (instant display)
         await loadFromCache();
+        
+        // Mark as initialized immediately after cache load
+        // This allows the UI to render with cached data
+        setIsLoading(false);
+        setIsInitialized(true);
 
-        // Then sync with GitHub in background
-        try {
-          const metadata = await cache.getSyncMetadata(userId);
-          if (metadata) {
-            // Incremental sync if we have previous sync data
-            await syncService.incrementalSync(userId, accessToken);
-          } else {
-            // Full sync on first load
-            await syncService.fullSync(userId, accessToken);
-          }
-        } catch (syncError) {
-          console.error("Sync error (non-fatal):", syncError);
-          // Continue even if sync fails - we have cached data
+        // Check if we need to sync (skip if synced recently)
+        const metadata = await cache.getSyncMetadata(userId);
+        const SYNC_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
+        const lastSyncTime = metadata?.lastSyncTime ? new Date(metadata.lastSyncTime).getTime() : 0;
+        const isFresh = Date.now() - lastSyncTime < SYNC_FRESHNESS_MS;
+
+        // Sync in background (non-blocking)
+        if (!isFresh) {
+          // Use setTimeout to ensure this doesn't block the UI
+          setTimeout(async () => {
+            try {
+              if (metadata) {
+                // Incremental sync if we have previous sync data
+                await syncService.incrementalSync(userId, accessToken);
+              } else {
+                // Full sync on first load
+                await syncService.fullSync(userId, accessToken);
+              }
+              // Reload from cache after sync
+              await loadFromCache();
+            } catch (syncError) {
+              console.error("Background sync error (non-fatal):", syncError);
+            }
+          }, 100);
         }
-
-        // Reload from cache after sync
-        await loadFromCache();
       } catch (error) {
         console.error("Error initializing cache:", error);
-      } finally {
         setIsLoading(false);
         setIsInitialized(true);
       }

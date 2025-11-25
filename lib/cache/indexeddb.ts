@@ -34,10 +34,48 @@ class IndexedDBCache {
     if (this.db) return;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = new Promise((resolve, reject) => {
+    this.initPromise = this.openDatabase();
+
+    return this.initPromise;
+  }
+
+  private openDatabase(deleteFirst = false): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (deleteFirst) {
+        // Delete the database first, then open it fresh
+        const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+        deleteRequest.onsuccess = () => {
+          this.doOpenDatabase(resolve, reject);
+        };
+        deleteRequest.onerror = () => {
+          // Even if delete fails, try to open anyway
+          this.doOpenDatabase(resolve, reject);
+        };
+      } else {
+        this.doOpenDatabase(resolve, reject, true);
+      }
+    });
+  }
+
+  private doOpenDatabase(
+    resolve: () => void,
+    reject: (error: unknown) => void,
+    allowRetry = false
+  ): void {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onerror = () => reject(request.error);
+    request.onerror = () => {
+      const error = request.error;
+      // Check if it's a version error (stored version is higher than requested)
+      if (allowRetry && error?.name === "VersionError") {
+        console.warn("IndexedDB version mismatch, deleting and recreating database...");
+        this.initPromise = this.openDatabase(true);
+        this.initPromise.then(resolve).catch(reject);
+      } else {
+        reject(error);
+      }
+    };
+
       request.onsuccess = () => {
         this.db = request.result;
         resolve();
@@ -79,9 +117,6 @@ class IndexedDBCache {
           });
         }
       };
-    });
-
-    return this.initPromise;
   }
 
   // Journal Entries

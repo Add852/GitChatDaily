@@ -28,17 +28,17 @@ export class SyncService {
    */
   async fullSync(userId: string, accessToken: string): Promise<SyncResult> {
     try {
-      // Fetch all journal entries
-      const journalEntries = await fetchJournalEntriesFromGitHub(accessToken, userId);
-      
-      // Fetch all chatbot profiles
-      const chatbots = await getChatbotsFromGitHub(accessToken);
-      const currentChatbotId = await getCurrentChatbotIdFromGitHub(accessToken);
+      // Fetch all data in parallel for faster loading
+      const [journalEntries, chatbots, currentChatbotId] = await Promise.all([
+        fetchJournalEntriesFromGitHub(accessToken, userId).catch(() => []),
+        getChatbotsFromGitHub(accessToken).catch(() => []),
+        getCurrentChatbotIdFromGitHub(accessToken).catch(() => null),
+      ]);
 
-      // Save to cache with userId
-      await cache.saveJournalEntries(
-        journalEntries.map((entry) => ({ ...entry, userId }))
-      );
+      // Save journal entries and chatbot profiles in parallel
+      const journalPromise = journalEntries.length > 0 
+        ? cache.saveJournalEntries(journalEntries.map((entry) => ({ ...entry, userId })))
+        : Promise.resolve();
       
       // Always include default chatbot, then add GitHub chatbots (excluding default if it exists)
       const allChatbots: (ChatbotProfile & { userId: string })[] = [
@@ -56,7 +56,10 @@ export class SyncService {
           })),
       ];
 
-      await cache.saveChatbotProfiles(allChatbots);
+      const chatbotsPromise = cache.saveChatbotProfiles(allChatbots);
+
+      // Wait for both saves to complete
+      await Promise.all([journalPromise, chatbotsPromise]);
 
       // Update sync metadata
       const now = new Date().toISOString();
@@ -103,9 +106,14 @@ export class SyncService {
         return this.fullSync(userId, accessToken);
       }
 
-      // Fetch all entries from GitHub (we'll compare with cache)
-      const githubEntries = await fetchJournalEntriesFromGitHub(accessToken, userId);
-      const cachedEntries = await cache.getAllJournalEntries(userId);
+      // Fetch all data in parallel (GitHub + cache)
+      const [githubEntries, githubChatbots, currentChatbotId, cachedEntries, cachedProfiles] = await Promise.all([
+        fetchJournalEntriesFromGitHub(accessToken, userId).catch(() => []),
+        getChatbotsFromGitHub(accessToken).catch(() => []),
+        getCurrentChatbotIdFromGitHub(accessToken).catch(() => null),
+        cache.getAllJournalEntries(userId).catch(() => []),
+        cache.getAllChatbotProfiles(userId).catch(() => []),
+      ]);
 
       // Create maps for quick lookup
       const cachedEntriesMap = new Map(cachedEntries.map((e) => [e.date, e]));
@@ -132,23 +140,24 @@ export class SyncService {
       }
 
       // Find deleted entries (in cache but not in GitHub)
-      let deleted = 0;
+      const entriesToDelete: string[] = [];
       for (const cachedEntry of cachedEntries) {
         if (!githubEntriesMap.has(cachedEntry.date)) {
-          await cache.deleteJournalEntry(userId, cachedEntry.date);
-          deleted++;
+          entriesToDelete.push(cachedEntry.date);
         }
+      }
+
+      // Batch delete entries
+      let deleted = 0;
+      for (const date of entriesToDelete) {
+        await cache.deleteJournalEntry(userId, date);
+        deleted++;
       }
 
       // Save updated entries
       if (entriesToSave.length > 0) {
         await cache.saveJournalEntries(entriesToSave);
       }
-
-      // Sync chatbot profiles
-      const githubChatbots = await getChatbotsFromGitHub(accessToken);
-      const currentChatbotId = await getCurrentChatbotIdFromGitHub(accessToken);
-      const cachedProfiles = await cache.getAllChatbotProfiles(userId);
 
       const cachedProfilesMap = new Map(cachedProfiles.map((p) => [p.id, p]));
       const githubProfilesMap = new Map(githubChatbots.map((p) => [p.id, p]));

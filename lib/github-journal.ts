@@ -21,7 +21,6 @@ export async function fetchJournalEntriesFromGitHub(
     throw error;
   }
 
-  const entries: JournalEntry[] = [];
   const timestampNow = new Date().toISOString();
 
   try {
@@ -36,40 +35,54 @@ export async function fetchJournalEntriesFromGitHub(
         (item) => item.type === "file" && item.name.endsWith(".md")
       );
 
-      for (const file of entryFiles) {
-        try {
-          const { data: fileData } = await octokit.repos.getContent({
-            owner: username,
-            repo: REPO_NAME,
-            path: file.path,
-          });
+      // Fetch all entry files in parallel (much faster than sequential)
+      const BATCH_SIZE = 10; // Limit concurrent requests to avoid rate limiting
+      const entries: JournalEntry[] = [];
+      
+      for (let i = 0; i < entryFiles.length; i += BATCH_SIZE) {
+        const batch = entryFiles.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (file) => {
+            try {
+              const { data: fileData } = await octokit.repos.getContent({
+                owner: username,
+                repo: REPO_NAME,
+                path: file.path,
+              });
 
-          if ("content" in fileData) {
-            const content = Buffer.from(fileData.content, "base64").toString("utf-8");
-            const parsed =
-              parseStructuredEntry(content) ?? parseLegacyEntry(content, file.name.replace(".md", ""));
+              if ("content" in fileData) {
+                const content = Buffer.from(fileData.content, "base64").toString("utf-8");
+                const parsed =
+                  parseStructuredEntry(content) ?? parseLegacyEntry(content, file.name.replace(".md", ""));
 
-            if (!parsed) {
-              continue;
+                if (parsed) {
+                  return {
+                    id: `${githubId}-${parsed.date}`,
+                    date: parsed.date,
+                    highlights: parsed.highlights,
+                    summary: parsed.summary,
+                    conversation: parsed.conversation,
+                    mood: parsed.mood,
+                    chatbotProfileId: "default",
+                    chatbotProfileName: parsed.chatbotProfileName,
+                    createdAt: parsed.createdAt ?? timestampNow,
+                    updatedAt: timestampNow,
+                  } as JournalEntry;
+                }
+              }
+              return null;
+            } catch (error) {
+              console.error(`Error loading entry ${file.name}:`, error);
+              return null;
             }
-
-            entries.push({
-              id: `${githubId}-${parsed.date}`,
-              date: parsed.date,
-              highlights: parsed.highlights,
-              summary: parsed.summary,
-              conversation: parsed.conversation,
-              mood: parsed.mood,
-              chatbotProfileId: "default",
-              chatbotProfileName: parsed.chatbotProfileName,
-              createdAt: parsed.createdAt ?? timestampNow,
-              updatedAt: timestampNow,
-            });
-          }
-        } catch (error) {
-          console.error(`Error loading entry ${file.name}:`, error);
-        }
+          })
+        );
+        
+        // Filter out nulls and add to entries
+        entries.push(...batchResults.filter((e): e is JournalEntry => e !== null));
       }
+
+      return entries.sort((a, b) => b.date.localeCompare(a.date));
     }
   } catch (error: any) {
     if (error.status !== 404) {
@@ -77,7 +90,7 @@ export async function fetchJournalEntriesFromGitHub(
     }
   }
 
-  return entries.sort((a, b) => b.date.localeCompare(a.date));
+  return [];
 }
 
 export async function deleteJournalEntryFromGitHub(accessToken: string, date: string): Promise<void> {

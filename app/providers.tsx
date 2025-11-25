@@ -5,7 +5,7 @@ import { CacheProvider } from "@/lib/cache/context";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider>
+    <SessionProvider refetchOnWindowFocus={false}>
       <CacheProvider>{children}</CacheProvider>
     </SessionProvider>
   );
